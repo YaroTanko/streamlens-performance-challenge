@@ -17,7 +17,7 @@ import (
 type normalizedConfig struct {
 	from   *time.Time
 	to     *time.Time
-	types  map[string]struct{} // O(1) lookup map instead of slice
+	types  map[string]struct{}
 	window time.Duration
 	topK   int
 }
@@ -31,7 +31,6 @@ type event struct {
 	value      float64
 }
 
-// aggregateKey is used as map key to avoid string allocation via fmt.Sprintf
 type aggregateKey struct {
 	windowStart time.Time
 	tenantID    string
@@ -41,7 +40,7 @@ type aggregateKey struct {
 type aggregate struct {
 	count int
 	sum   float64
-	users map[string]float64 // O(1) lookups for active users
+	users map[string]float64
 }
 
 func Analyze(ctx context.Context, input io.Reader, config Config) ([]Group, error) {
@@ -76,7 +75,6 @@ func Analyze(ctx context.Context, input io.Reader, config Config) ([]Group, erro
 			allUsers = append(allUsers, TopUser{UserID: uID, Value: val})
 		}
 
-		// Use modern generic SortFunc to avoid reflection overhead
 		slices.SortFunc(allUsers, func(a, b TopUser) int {
 			if a.Value != b.Value {
 				if a.Value > b.Value {
@@ -171,42 +169,68 @@ func normalizeConfig(config Config) (normalizedConfig, error) {
 }
 
 func readAndAggregate(ctx context.Context, input io.Reader, config normalizedConfig) (map[aggregateKey]*aggregate, error) {
-	scanner := bufio.NewScanner(input)
+	reader := bufio.NewReader(input)
 	aggregates := make(map[aggregateKey]*aggregate)
 	lineNumber := 0
 
-	for scanner.Scan() {
-		lineNumber++
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
+	for {
+		var line []byte
+		var isPrefix bool
+		var err error
+		hasReadData := false
 
-		// Get bytes slice without allocating a string immediately
-		lineBytes := scanner.Bytes()
-		trimmedBytes := bytes.TrimSpace(lineBytes)
-		if len(trimmedBytes) == 0 {
-			continue
-		}
-
-		if !utf8.Valid(trimmedBytes) {
-			return nil, fmt.Errorf("line %d: input is not valid UTF-8", lineNumber)
-		}
-
-		item, err := parseEventBytes(trimmedBytes)
-		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", lineNumber, err)
-		}
-		item.lineNumber = lineNumber
-
-		if eventAllowed(item, config) {
-			if err := addEvent(aggregates, config, item); err != nil {
-				return nil, err
+		for {
+			var chunk []byte
+			chunk, isPrefix, err = reader.ReadLine()
+			if err != nil && !errors.Is(err, io.EOF) {
+				failureLine := lineNumber
+				if !hasReadData && len(chunk) == 0 {
+					failureLine++
+				}
+				return nil, fmt.Errorf("line %d: read input: %w", failureLine, err)
+			}
+			if len(chunk) > 0 {
+				line = append(line, chunk...)
+				hasReadData = true
+			}
+			if !isPrefix {
+				break
 			}
 		}
-	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("line %d: read input: %w", lineNumber+1, err)
+		// If we read actual content (or an empty/blank line before EOF), increment the line tracker
+		if hasReadData || (!errors.Is(err, io.EOF)) {
+			lineNumber++
+		}
+
+		if len(line) > 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+
+			trimmedBytes := bytes.TrimSpace(line)
+			if len(trimmedBytes) != 0 {
+				if !utf8.Valid(trimmedBytes) {
+					return nil, fmt.Errorf("line %d: input is not valid UTF-8", lineNumber)
+				}
+
+				item, err := parseEventBytes(trimmedBytes)
+				if err != nil {
+					return nil, fmt.Errorf("line %d: %w", lineNumber, err)
+				}
+				item.lineNumber = lineNumber
+
+				if eventAllowed(item, config) {
+					if err := addEvent(aggregates, config, item); err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+
+		if errors.Is(err, io.EOF) {
+			break
+		}
 	}
 
 	return aggregates, nil
@@ -228,7 +252,7 @@ func addEvent(aggregates map[aggregateKey]*aggregate, config normalizedConfig, i
 		aggregates[key] = group
 	}
 
-	currentUserSum := group.users[item.userID] // Returns 0.0 if not present
+	currentUserSum := group.users[item.userID]
 	nextUserSum := currentUserSum + item.value
 	if math.IsInf(nextUserSum, 0) {
 		return fmt.Errorf("line %d: user sum overflow for user_id %q", item.lineNumber, item.userID)
@@ -251,64 +275,72 @@ func addEvent(aggregates map[aggregateKey]*aggregate, config normalizedConfig, i
 	return nil
 }
 
-// Concrete schema for single-pass structural decoding
-type jsonEventSchema struct {
-	Timestamp string          `json:"timestamp"`
-	TenantID  string          `json:"tenant_id"`
-	UserID    string          `json:"user_id"`
-	Type      string          `json:"type"`
-	Value     json.RawMessage `json:"value"`
-}
-
 func parseEventBytes(line []byte) (event, error) {
-	var schema jsonEventSchema
-	if err := json.Unmarshal(line, &schema); err != nil {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(line, &fields); err != nil {
 		return event{}, fmt.Errorf("invalid JSON: %w", err)
 	}
 
-	if schema.Timestamp == "" {
-		return event{}, errors.New("timestamp is required")
+	timestampText, err := requiredString(fields, "timestamp")
+	if err != nil {
+		return event{}, err
 	}
-	timestamp, err := time.Parse(time.RFC3339Nano, schema.Timestamp)
+	timestamp, err := time.Parse(time.RFC3339Nano, timestampText)
 	if err != nil {
 		return event{}, fmt.Errorf("timestamp must be RFC3339Nano with an explicit offset: %w", err)
 	}
 
-	if schema.TenantID == "" {
-		return event{}, errors.New("tenant_id is required and must not be empty")
+	tenantID, err := requiredString(fields, "tenant_id")
+	if err != nil {
+		return event{}, err
 	}
-	if schema.UserID == "" {
-		return event{}, errors.New("user_id is required and must not be empty")
+	userID, err := requiredString(fields, "user_id")
+	if err != nil {
+		return event{}, err
 	}
-	if schema.Type == "" {
-		return event{}, errors.New("type is required and must not be empty")
+	typeName, err := requiredString(fields, "type")
+	if err != nil {
+		return event{}, err
 	}
 
-	if len(schema.Value) == 0 {
+	valueField, ok := fields["value"]
+	if !ok {
 		return event{}, errors.New("value is required")
 	}
-
-	trimmedVal := bytes.TrimSpace(schema.Value)
-	if len(trimmedVal) == 0 || (trimmedVal[0] != '-' && (trimmedVal[0] < '0' || trimmedVal[0] > '9')) {
+	valueField = bytes.TrimSpace(valueField)
+	if len(valueField) == 0 || (valueField[0] != '-' && (valueField[0] < '0' || valueField[0] > '9')) {
 		return event{}, errors.New("value must be a number")
 	}
-
 	var value float64
-	if err := json.Unmarshal(trimmedVal, &value); err != nil {
+	if err := json.Unmarshal(valueField, &value); err != nil {
 		return event{}, errors.New("value must be a number")
 	}
-
 	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
 		return event{}, errors.New("value must be finite and greater than or equal to zero")
 	}
 
 	return event{
 		timestamp: timestamp,
-		tenantID:  schema.TenantID,
-		userID:    schema.UserID,
-		typeName:  schema.Type,
+		tenantID:  tenantID,
+		userID:    userID,
+		typeName:  typeName,
 		value:     value,
 	}, nil
+}
+
+func requiredString(fields map[string]json.RawMessage, name string) (string, error) {
+	value, ok := fields[name]
+	if !ok {
+		return "", fmt.Errorf("%s is required", name)
+	}
+	var text string
+	if err := json.Unmarshal(value, &text); err != nil {
+		return "", fmt.Errorf("%s must be a string", name)
+	}
+	if text == "" {
+		return "", fmt.Errorf("%s must not be empty", name)
+	}
+	return text, nil
 }
 
 func eventAllowed(item event, config normalizedConfig) bool {
