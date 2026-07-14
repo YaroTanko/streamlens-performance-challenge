@@ -1,5 +1,7 @@
 # StreamLens Performance Challenge
 
+[![StreamLens assessment](https://github.com/YaroTanko/streamlens-performance-challenge/actions/workflows/assessment.yml/badge.svg)](https://github.com/YaroTanko/streamlens-performance-challenge/actions/workflows/assessment.yml)
+
 StreamLens is a small Go CLI and in-repository analyzer component that reads NDJSON events, filters them,
 groups them into fixed UTC-aligned windows, and produces deterministic aggregate
 results. This repository is also a 30-minute, AI-assisted performance exercise:
