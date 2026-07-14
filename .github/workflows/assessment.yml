@@ -7,8 +7,8 @@ permissions:
   contents: read
 
 env:
-  # Immutable assessment version v1; baseline-v1 is its human-readable alias.
-  BASELINE_COMMIT: "12bc3c2e8044dc017e219e75b6c389f85e5b4943"
+  # Immutable assessment version v2; baseline-v2 is its human-readable alias.
+  BASELINE_COMMIT: "6b25bcaca101b840db27a5bfabbfadb7a523a6d6"
   CANDIDATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
   CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
   UPSTREAM_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
