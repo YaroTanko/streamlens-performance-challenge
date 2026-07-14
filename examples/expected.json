@@ -1,0 +1,1 @@
+[{"window_start":"2026-01-15T12:34:00Z","tenant_id":"acme","type":"purchase","count":2,"sum":30,"unique_users":2,"top_users":[{"user_id":"user-42","value":19.95},{"user_id":"user-7","value":10.05}]}]

@@ -1,0 +1,59 @@
+# Instructions for AI Coding Agents
+
+This repository is a timed Go performance assessment. Help the candidate analyze
+and improve the existing implementation while preserving the contract. AI use is
+explicitly allowed; do not conceal uncertainty or claim benchmark gains that were
+not measured.
+
+## Authority and scope
+
+1. `PRD.md` is the product and assessment source of truth.
+2. `TASK.md` defines the candidate-editable scope and scoring policy.
+3. `DESIGN.md` summarizes architecture and invariants.
+
+For a candidate pull request, edit exactly:
+
+- `internal/analyzer/engine.go`
+- `OPTIMIZATION.md`
+
+Do not edit or generate tests, fixtures, benchmark code, scripts, module metadata,
+other documentation, workflows, or additional implementation files. If a requested
+change requires a protected path, explain the conflict instead of making the edit.
+
+## Working rules
+
+- Inspect the implementation and measure it before selecting an optimization.
+- Preserve the specified parsing, validation, filtering, aggregation, ordering, error, and
+  cancellation behavior.
+- Do not convert ignored fields, interpret only the last exact duplicate field,
+  and preserve earliest-line error precedence.
+- Preserve input-order `float64` sum semantics and overflow errors; do not reorder
+  additions or substitute approximate arithmetic.
+- Use only the Go standard library and preserve the exported in-repository API and JSON format.
+- Never weaken, bypass, special-case, or detect tests and benchmark workloads.
+- Never replace specified results with approximations or skip valid input work.
+- Keep the change reviewable within a 30-minute exercise.
+- Record the measured or expected effect and any trade-off in `OPTIMIZATION.md`.
+
+## Verification
+
+Run:
+
+```sh
+make check
+make benchmark
+```
+
+If `make` is unavailable, run:
+
+```sh
+go vet ./...
+go test ./...
+go build ./...
+GOMAXPROCS=1 go test -run '^$' -bench . -benchmem -cpu=1 ./internal/assessment
+```
+
+Treat local benchmark changes as directional because CI performs the authoritative
+same-run baseline comparison. Before finishing, inspect the diff and confirm that
+only the two allowed files changed and that `OPTIMIZATION.md` contains 5–10 concise
+lines explaining the approach, expected effect, trade-offs, and verification.

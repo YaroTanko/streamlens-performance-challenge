@@ -1,0 +1,15 @@
+# Go build and test artifacts
+/bin/
+*.out
+*.test
+*.prof
+coverage.txt
+
+# Local benchmark output
+/.bench/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
