@@ -1,12 +1,14 @@
 # Optimization Notes
 
-Replace this template with 5–10 concise lines before opening your pull request.
+Replace this template with 5–10 concise bullet lines before opening your pull request.
+Keep the `Profile evidence:` label and name the command or tool plus a hotspot you
+actually observed; another profiler is as valid as the provided pprof targets.
 
-- Bottleneck observed:
-- Implementation change:
-- Why it should improve execution time:
-- Expected effect on allocated bytes:
-- Expected effect on allocation count:
-- Correctness considerations:
-- Trade-offs:
-- Verification performed:
+- Profile evidence:
+- Bottleneck:
+- Change:
+- CPU effect:
+- Memory effect:
+- Correctness:
+- Trade-off:
+- Verification:
