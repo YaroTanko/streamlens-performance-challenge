@@ -7,8 +7,8 @@ permissions:
   contents: read
 
 env:
-  # Immutable assessment version v1; baseline-v1 is its human-readable alias.
-  BASELINE_COMMIT: "12bc3c2e8044dc017e219e75b6c389f85e5b4943"
+  # Immutable assessment version v2; baseline-v2 is its human-readable alias.
+  BASELINE_COMMIT: "6b25bcaca101b840db27a5bfabbfadb7a523a6d6"
   CANDIDATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
   CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
   UPSTREAM_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
@@ -98,7 +98,17 @@ jobs:
             -output "$GITHUB_WORKSPACE/benchmark-results/report.md" \
             -min-samples 5
 
-      - name: Upload raw benchmark output
+      - name: Capture CPU and allocation profiles
+        id: profiles
+        if: always() && steps.protected.outcome == 'success' && steps.tests.outcome == 'success'
+        continue-on-error: true
+        working-directory: baseline
+        env:
+          PROFILE_PROJECT_DIRECTORY: ${{ github.workspace }}/candidate
+          PROFILE_TIME: 1s
+        run: bash "$GITHUB_WORKSPACE/baseline/scripts/profile.sh" all Balanced "$GITHUB_WORKSPACE/benchmark-results/profiles"
+
+      - name: Upload benchmark and profile artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -113,6 +123,7 @@ jobs:
           PROTECTED_STATUS: ${{ steps.protected.outcome }}
           TEST_STATUS: ${{ steps.tests.outcome }}
           BENCHMARK_STATUS: ${{ steps.benchmarks.outcome }}
+          PROFILE_STATUS: ${{ steps.profiles.outcome }}
         run: |
           {
             echo "# StreamLens assessment"
@@ -122,6 +133,7 @@ jobs:
             echo "| Protected files | $PROTECTED_STATUS |"
             echo "| Functional tests | $TEST_STATUS |"
             echo "| Performance gate | $BENCHMARK_STATUS |"
+            echo "| Profile capture | $PROFILE_STATUS |"
             echo
             if [[ -f benchmark-results/report.md ]]; then
               cat benchmark-results/report.md
@@ -132,6 +144,26 @@ jobs:
             else
               echo "Performance comparison did not produce a report. Inspect the raw job log."
             fi
+            if [[ -f benchmark-results/profiles/cpu-top.txt ]]; then
+              echo
+              echo "## CPU profile (top)"
+              echo
+              echo '```text'
+              sed -n '1,20p' benchmark-results/profiles/cpu-top.txt
+              echo '```'
+            fi
+            if [[ -f benchmark-results/profiles/alloc-top.txt ]]; then
+              echo
+              echo "## Allocation profile (top)"
+              echo
+              echo '```text'
+              sed -n '1,20p' benchmark-results/profiles/alloc-top.txt
+              echo '```'
+            fi
+            if [[ "$PROFILE_STATUS" != "success" ]]; then
+              echo
+              echo "Profile capture did not succeed. Inspect the profile step log."
+            fi
           } >>"$GITHUB_STEP_SUMMARY"
 
       - name: Enforce assessment result
@@ -140,8 +172,9 @@ jobs:
           PROTECTED_STATUS: ${{ steps.protected.outcome }}
           TEST_STATUS: ${{ steps.tests.outcome }}
           BENCHMARK_STATUS: ${{ steps.benchmarks.outcome }}
+          PROFILE_STATUS: ${{ steps.profiles.outcome }}
         run: |
-          if [[ "$PROTECTED_STATUS" != "success" || "$TEST_STATUS" != "success" || "$BENCHMARK_STATUS" != "success" ]]; then
+          if [[ "$PROTECTED_STATUS" != "success" || "$TEST_STATUS" != "success" || "$BENCHMARK_STATUS" != "success" || "$PROFILE_STATUS" != "success" ]]; then
             echo "Assessment failed; see the job summary for details." >&2
             exit 1
           fi

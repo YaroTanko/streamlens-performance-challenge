@@ -17,6 +17,8 @@ Use the Go version declared in `go.mod`.
 ```sh
 make check
 make benchmark
+make profile-cpu
+make profile-alloc
 ```
 
 Roughly equivalent raw commands are:
@@ -48,8 +50,9 @@ A canonical input/output pair is available in `examples/events.ndjson` and
 
 Fork the repository, create a branch, and use any AI assistant or profiling tools
 you find useful. You may change only `internal/analyzer/engine.go` and
-`OPTIMIZATION.md`. Keep the output and observable behavior unchanged, write a 5–10 line
-optimization note, and open a pull request to the upstream repository.
+`OPTIMIZATION.md`. Keep the output and observable behavior unchanged, write a 5–10
+bullet optimization note with a concrete profile observation, and open a pull
+request to the upstream repository.
 
 CI first verifies tests and protected paths. It then compares the immutable
 baseline and pull-request revision on the same runner, reporting time, bytes, and
@@ -61,11 +64,18 @@ Local benchmark values help guide development, but only the comparative CI run i
 authoritative. A reported Middle, Senior, or Staff optimization tier describes the
 measured result, not the candidate's job level or hiring outcome.
 
+The provided profiling targets write CPU and allocation pprof data and top
+summaries to `.bench/profiles/`. They are a convenient starting point, not a tool
+restriction: any profiler may be used. CI captures fresh candidate profiles for
+review, but profiles are diagnostic and do not contribute to the score. See
+`PROFILING.md` for commands and interpretation guidance.
+
 ## Documentation
 
 - `PRD.md`: product requirements and assessment source of truth
 - `TASK.md`: candidate scope, scoring, and deliverables
 - `DESIGN.md`: architecture and behavioral invariants
+- `PROFILING.md`: profiler-agnostic workflow and local pprof commands
 - `AGENTS.md`: instructions for AI coding agents
 - `CONTRIBUTING.md`: fork and pull-request workflow
 - `OPTIMIZATION.md`: candidate explanation template

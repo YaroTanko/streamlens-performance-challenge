@@ -1,7 +1,7 @@
 # StreamLens Performance Challenge — Product Requirements Document
 
-**Status:** Approved for assessment version 1
-**Version:** 1.0
+**Status:** Approved for assessment version 2
+**Version:** 2.0
 **Language:** English
 **Implementation language:** Go
 **Source-of-truth rule:** The application, assessment instructions, tests, benchmarks, and CI workflow must conform to this document. If another repository document conflicts with this PRD, this PRD wins.
@@ -40,6 +40,9 @@ An engineer reviewing the pull request, its CI report, the implementation choice
 - Keep the functional scope small enough to understand and modify in 30 minutes.
 - Offer multiple legitimate optimization paths across execution time, bytes allocated, and allocation count.
 - Produce deterministic functional results and low-noise comparative benchmarks.
+- Require a concise, plausible profile observation before accepting an optimization.
+- Provide repeatable local CPU and allocation profiling without requiring a
+  particular profiler.
 - Report the candidate result as Middle, Senior, or Staff optimization tier.
 - Make the repository friendly to AI-assisted development through canonical project documentation.
 - Keep the public-fork CI safe: no secrets, privileged tokens, or untrusted deployment steps.
@@ -61,10 +64,12 @@ Benchmark fixtures and previous pull-request solutions are discoverable because 
 1. Fork the public repository.
 2. Create a branch in the fork.
 3. Read `README.md` and `TASK.md`; use `PRD.md` and `DESIGN.md` as reference material and provide `AGENTS.md` to the AI assistant.
-4. Run the functional tests and local benchmark.
-5. Use any AI assistant and/or profiling tools to analyze the implementation.
+4. Run the functional tests, local benchmark, and at least one profiling tool.
+5. Use the profile evidence, source analysis, and any AI assistant to choose an
+   optimization.
 6. Optimize permitted implementation files without changing observable behavior.
-7. Add a 5–10 line explanation to `OPTIMIZATION.md`.
+7. Add a 5–10 bullet explanation to `OPTIMIZATION.md`, including the profiling
+   command or tool and an observed hotspot.
 8. Push the branch and open a pull request to the upstream repository.
 9. Inspect the CI correctness and performance report.
 
@@ -155,7 +160,8 @@ The project must depend only on the Go standard library unless this PRD is amend
 - Removing only one bottleneck should be capable of producing a meaningful but not necessarily maximum score.
 - Combining implementation and algorithmic improvements should make higher tiers reachable.
 - The code must not label individual lines as deliberate bottlenecks or prescribe the solution.
-- CI pins the baseline by its full 40-character upstream commit SHA. A `baseline-v1` tag is a human-readable alias and is not the source of truth.
+- CI pins the baseline by its full 40-character upstream commit SHA. A
+  `baseline-v2` tag is a human-readable alias and is not the source of truth.
 - Any change to the implementation, tests, fixtures, benchmark tooling, or pinned Go toolchain creates a new assessment version and baseline commit.
 
 ## 12. Functional verification
@@ -197,6 +203,10 @@ If an aggregate result is within two percentage points of the 20%, 50%, or 75% b
 ## 14. Scoring and CI policy
 
 Correctness is mandatory. CI fails when functional tests fail or protected assessment files change.
+CI also fails when `OPTIMIZATION.md` does not contain 5–10 bullets or its
+`Profile evidence:` bullet is missing, empty, or still contains template prompts.
+This validation establishes that evidence was reported, not that a particular
+tool was used; plausibility remains a human-review decision.
 
 For each metric, improvement is calculated relative to the immutable baseline:
 
@@ -223,6 +233,21 @@ An improvement of exactly -20.00% for a metric geometric mean or -30.00% for a s
 
 The percentages describe the optimization result, not the candidate's job level.
 
+### 14.1 Profiling evidence
+
+Profiling guides the candidate's choice; it is separate from authoritative
+benchmark scoring. The repository provides `make profile-cpu` and
+`make profile-alloc`, but candidates may use another profiler.
+`OPTIMIZATION.md` must name the command or tool used and the observed hotspot.
+
+CI independently captures CPU and allocation profiles for the submitted revision's
+`Balanced` scenario and publishes both machine-readable pprof files and
+human-readable top summaries. These artifacts help the interviewer evaluate
+whether the explanation is plausible; they do not prove which tool the candidate
+used during the timed work. The interviewer reviews that evidence and the
+implementation rather than treating the presence of a CI profile as proof of
+candidate process.
+
 ## 15. Protected assessment files
 
 Candidate pull requests may change only:
@@ -242,9 +267,15 @@ Every pull request produces a GitHub Actions job summary containing:
 - percentage change per scenario;
 - geometric-mean improvement for time, bytes, and allocations;
 - tier for each metric and the overall optimization tier;
+- top CPU and allocation profile summaries for the candidate revision;
 - the final pass/fail reason.
 
-Raw benchmark outputs are retained as workflow artifacts. The workflow uses the `pull_request` event with read-only permissions and does not use secrets.
+Raw benchmark outputs are retained as workflow artifacts. The same artifact
+contains `profiles/cpu.pprof`, `profiles/alloc.pprof`,
+`profiles/cpu-top.txt`, and `profiles/alloc-top.txt` for the candidate revision.
+Profile capture is diagnostic and runs separately from the alternating benchmark
+samples used for scoring. The workflow uses the `pull_request` event with
+read-only permissions and does not use secrets.
 
 ## 17. Repository documentation
 
@@ -256,6 +287,7 @@ The repository contains:
 - `README.md` — short orientation and quick start;
 - `TASK.md` — candidate rules and deliverables;
 - `DESIGN.md` — current architecture and invariants;
+- `PROFILING.md` — local profiling commands and interpretation guidance;
 - `AGENTS.md` — canonical instructions for AI coding agents;
 - `OPTIMIZATION.md` — candidate response template;
 - `CONTRIBUTING.md` — fork and pull-request workflow;
@@ -275,4 +307,11 @@ The repository is ready when:
 7. CI rejects a pull request that changes protected files;
 8. no workflow exposes secrets or grants write permission to forked code;
 9. all documentation is in English and internally consistent;
-10. a reviewer can understand the optimization from the pull request and a 5–10 line `OPTIMIZATION.md`.
+10. `make profile-cpu` and `make profile-alloc` produce valid local pprof files
+    and readable top summaries without affecting benchmark scoring;
+11. CI publishes candidate CPU and allocation profiles plus top summaries as
+    diagnostic artifacts;
+12. CI validates the 5–10 bullet response and requires a completed
+    `Profile evidence:` bullet without treating it as proof of tool use;
+13. a reviewer can understand the optimization and its profile rationale from the
+    pull request and a 5–10 bullet `OPTIMIZATION.md`.

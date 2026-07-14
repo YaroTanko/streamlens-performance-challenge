@@ -2,9 +2,9 @@
 
 ## Objective
 
-You have up to 30 minutes to improve StreamLens performance without changing its
-observable behavior. You may use any AI assistant, profiler, editor, or local
-analysis tool. Correctness is mandatory.
+You have up to 30 minutes to profile and improve StreamLens performance without
+changing its observable behavior. You may use any AI assistant, profiler, editor,
+or local analysis tool. Correctness is mandatory.
 
 The timer starts after a clean checkout and the required Go toolchain are ready.
 It stops at 30:00 or when you record your final local commit SHA. Clone/toolchain
@@ -36,11 +36,15 @@ request that changes a protected path. Do not move implementation into a new fil
 
 1. Read `README.md` and this file; give `AGENTS.md`, `PRD.md`, and `DESIGN.md` to
    your AI assistant or consult them when behavior is unclear.
-2. Run `make check` and `make benchmark`.
-3. Inspect or profile the analyzer and choose one or more measurable improvements.
+2. Run `make check`, `make benchmark`, and either a provided profiling target or
+   another profiler. The provided targets are `make profile-cpu` and
+   `make profile-alloc`; see `PROFILING.md`.
+3. Use the observed hotspot to choose one or more measurable improvements.
 4. Edit `internal/analyzer/engine.go`, then rerun correctness checks and benchmarks.
-5. Replace the template in `OPTIMIZATION.md` with a concise 5–10 line explanation,
-   commit both deliverables, and record the commit SHA before the timer ends.
+5. Replace the template in `OPTIMIZATION.md` with 5–10 concise bullets, including
+   a non-empty `Profile evidence:` bullet that names the command or tool and the
+   observed hotspot. Commit both deliverables and record the commit SHA before the
+   timer ends.
 6. After the timer, push that exact SHA, open an upstream pull request, and inspect
    its CI summary. A first-time fork workflow may wait for interviewer approval.
 
@@ -69,9 +73,15 @@ a tier boundary, the interviewer may rerun the exact same commit and use the low
 of inconsistent outcomes. Tiers describe this optimization result only and must
 not be interpreted as a candidate seniority or hiring decision.
 
+Profiling is diagnostic and separate from scoring. CI creates its own CPU and
+allocation pprof files and top summaries for interviewer review, but those
+artifacts cannot prove which tool you used. Your `Profile evidence:` note must
+truthfully describe your own observation; another profiler is as valid as the
+provided Go pprof targets.
+
 ## Deliverables
 
 - An implementation change in `internal/analyzer/engine.go`.
-- A 5–10 line explanation in `OPTIMIZATION.md` covering the change, expected effect,
-  trade-offs, and verification.
+- A 5–10 bullet explanation in `OPTIMIZATION.md` covering profile evidence, the
+  change, expected effect, trade-offs, and verification.
 - A pull request from a branch in your public fork to the upstream repository.

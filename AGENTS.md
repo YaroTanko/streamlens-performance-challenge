@@ -22,7 +22,9 @@ change requires a protected path, explain the conflict instead of making the edi
 
 ## Working rules
 
-- Inspect the implementation and measure it before selecting an optimization.
+- Inspect and profile the implementation before selecting an optimization. The
+  repository provides `make profile-cpu` and `make profile-alloc`, but another
+  profiler is equally acceptable.
 - Preserve the specified parsing, validation, filtering, aggregation, ordering, error, and
   cancellation behavior.
 - Do not convert ignored fields, interpret only the last exact duplicate field,
@@ -34,6 +36,8 @@ change requires a protected path, explain the conflict instead of making the edi
 - Never replace specified results with approximations or skip valid input work.
 - Keep the change reviewable within a 30-minute exercise.
 - Record the measured or expected effect and any trade-off in `OPTIMIZATION.md`.
+- Include a non-empty `Profile evidence:` bullet naming the command or tool and an
+  observed hotspot. Do not claim profile evidence that was not observed.
 
 ## Verification
 
@@ -42,6 +46,9 @@ Run:
 ```sh
 make check
 make benchmark
+# Run at least one profiling target (or use another profiler):
+make profile-cpu    # CPU hotspots
+make profile-alloc  # allocation hotspots
 ```
 
 If `make` is unavailable, run:
@@ -56,4 +63,5 @@ GOMAXPROCS=1 go test -run '^$' -bench . -benchmem -cpu=1 ./internal/assessment
 Treat local benchmark changes as directional because CI performs the authoritative
 same-run baseline comparison. Before finishing, inspect the diff and confirm that
 only the two allowed files changed and that `OPTIMIZATION.md` contains 5–10 concise
-lines explaining the approach, expected effect, trade-offs, and verification.
+bullets explaining the profile evidence, approach, expected effect, trade-offs,
+and verification. Profiling is diagnostic and remains separate from scoring.

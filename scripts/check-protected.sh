@@ -65,4 +65,18 @@ if grep -Fq -- 'Replace this template' OPTIMIZATION.md; then
   exit 1
 fi
 
+bullet_count=$(awk '
+  /^[[:space:]]*[-*+][[:space:]]+[^[:space:]]/ { count++ }
+  END { print count + 0 }
+' OPTIMIZATION.md)
+if [[ $bullet_count -lt 5 || $bullet_count -gt 10 ]]; then
+  echo "OPTIMIZATION.md must contain 5-10 non-empty Markdown bullet lines; found $bullet_count." >&2
+  exit 1
+fi
+
+if ! grep -Eq '^[[:space:]]*[-*+][[:space:]]+Profile evidence:[[:space:]]*[^[:space:]]' OPTIMIZATION.md; then
+  echo "OPTIMIZATION.md must include a non-empty bullet in the form '- Profile evidence: <measured observation>'." >&2
+  exit 1
+fi
+
 echo "Protected-file check passed."

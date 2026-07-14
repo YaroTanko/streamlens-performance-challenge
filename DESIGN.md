@@ -19,6 +19,8 @@ component boundaries and the invariants an implementation must preserve.
 - `internal/assessment` owns deterministic benchmark workloads. Its input is built
   outside the timed region and covers balanced, high-cardinality, and mostly
   filtered streams.
+- The profiling script runs the same analyzer workloads outside the authoritative
+  sample loop and writes CPU and allocation pprof data plus top summaries.
 - `scripts` and `.github/workflows` own protected-path validation and comparative
   reporting against the immutable baseline.
 
@@ -84,3 +86,18 @@ making any single benchmark the entire exercise.
 Tests and benchmark tooling are intentionally outside the candidate-editable area.
 Candidates change only `internal/analyzer/engine.go` and `OPTIMIZATION.md`; all
 behavioral boundaries above remain fixed.
+
+## Profiling and scoring separation
+
+`make profile-cpu` and `make profile-alloc` create
+`.bench/profiles/cpu.pprof`, `.bench/profiles/alloc.pprof`,
+`.bench/profiles/cpu-top.txt`, and `.bench/profiles/alloc-top.txt`. The targets are
+repeatable entry points for Go pprof; they do not constrain the candidate to
+pprof. A candidate may instead use another profiler or analysis tool and records
+the actual observation in `OPTIMIZATION.md`.
+
+CI profiles the candidate revision in a dedicated diagnostic step and includes
+the top summaries in its job report. Authoritative scoring still comes only from
+the alternating baseline-versus-candidate benchmark samples. Running a profiler
+changes execution conditions, so profile measurements are never mixed into the
+scored sample set.

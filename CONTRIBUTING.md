@@ -20,6 +20,7 @@ scope.
    ```sh
    make check
    make benchmark
+   make profile-cpu  # or make profile-alloc
    ```
 
 4. Modify only `internal/analyzer/engine.go` and `OPTIMIZATION.md`.
@@ -40,13 +41,16 @@ approval time are outside the candidate's 30-minute timer.
 
 CI is authoritative: it verifies correctness and protected paths before comparing
 the pull request with the immutable baseline on the same runner. Raw benchmark
-outputs are attached as workflow artifacts.
+outputs and diagnostic CPU/allocation profiles are attached as workflow artifacts.
+The profiles support human review; only the comparative benchmark determines the
+numeric result.
 
 ## Submission expectations
 
 - Keep all observable behavior consistent with the deterministic PRD contract.
 - Keep the implementation standard-library-only.
-- Provide 5–10 concise lines in `OPTIMIZATION.md`.
+- Provide 5–10 concise bullets in `OPTIMIZATION.md`, including a truthful,
+  non-empty `Profile evidence:` bullet naming the command or tool and hotspot.
 - Do not modify or attempt to bypass protected assessment files.
 - Treat the reported optimization tier as a performance result, not a statement of
   job seniority.
