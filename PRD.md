@@ -367,8 +367,15 @@ Raw benchmark outputs are retained as workflow artifacts. The same artifact
 contains `profiles/cpu.pprof`, `profiles/alloc.pprof`,
 `profiles/cpu-top.txt`, and `profiles/alloc-top.txt` for the candidate revision.
 Profile capture is diagnostic and runs separately from the alternating benchmark
-samples used for scoring. The workflow uses the `pull_request` event with
-read-only permissions and does not use secrets.
+samples used for scoring. Starting with version 3, the workflow uses
+`pull_request_target` so its definition comes from the trusted base branch. It
+grants only read access to repository contents and does not reference secrets.
+The exact fork revision is checked out as untrusted data with credentials
+disabled; no host command executes candidate scripts, tests, module metadata, or
+workflow files. Trusted baseline tools inspect committed blobs, construct the
+two-file overlay, and execute the analyzer only inside the restricted no-network
+container. The candidate checkout must never become a host working directory for
+build, test, install, shell, or other code-execution commands.
 
 When version 3 is activated, each authoritative assessment artifact set also
 contains `manifest-core.json`, with sorted revisions, fixed assessment parameters,

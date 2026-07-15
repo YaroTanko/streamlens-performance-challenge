@@ -1,18 +1,26 @@
 name: StreamLens assessment
 
 on:
-  pull_request:
+  # The workflow definition comes only from the trusted base branch. Candidate
+  # files are checked out as data and never executed by a host-side command.
+  pull_request_target:
 
 permissions:
   contents: read
 
 env:
-  # Immutable assessment version v2; baseline-v2 is its human-readable alias.
-  BASELINE_COMMIT: "6b25bcaca101b840db27a5bfabbfadb7a523a6d6"
+  ASSESSMENT_BASELINE_SHA: "770e8cb4e206b697c63d18d119dcb6d97d07884b"
+  ASSESSMENT_DOCKER_IMAGE: "golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651"
+  BENCH_SAMPLES: "7"
+  BENCH_TIME: "300ms"
+  BENCH_GOMAXPROCS: "1"
+  PROFILE_SCENARIO: "Balanced"
+  PROFILE_TIME: "2s"
   CANDIDATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
   CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
   UPSTREAM_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
   UPSTREAM_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  EVIDENCE_PARENT: ${{ github.workspace }}/assessment-evidence
 
 concurrency:
   group: assessment-${{ github.event.pull_request.number }}
@@ -21,161 +29,278 @@ concurrency:
 jobs:
   assess:
     name: Correctness and performance
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
 
     steps:
-      - name: Check out exact candidate revision
+      - name: Create private evidence directory
+        run: |
+          umask 077
+          if [[ -e "$EVIDENCE_PARENT" || -L "$EVIDENCE_PARENT" ]]; then
+            echo "Evidence directory already exists: $EVIDENCE_PARENT" >&2
+            exit 2
+          fi
+          mkdir -m 0700 -- "$EVIDENCE_PARENT"
+          {
+            printf 'assessment_baseline=%s\n' "$ASSESSMENT_BASELINE_SHA"
+            printf 'candidate_repository=%s\n' "$CANDIDATE_REPOSITORY"
+            printf 'candidate_base=%s\n' "$UPSTREAM_BASE_SHA"
+            printf 'candidate=%s\n' "$CANDIDATE_SHA"
+            printf 'container_image=%s\n' "$ASSESSMENT_DOCKER_IMAGE"
+            printf 'benchmark_samples=%s\n' "$BENCH_SAMPLES"
+            printf 'benchmark_time=%s\n' "$BENCH_TIME"
+            printf 'benchmark_gomaxprocs=%s\n' "$BENCH_GOMAXPROCS"
+            printf 'profile_scenario=%s\n' "$PROFILE_SCENARIO"
+            printf 'profile_time=%s\n' "$PROFILE_TIME"
+          } >"$EVIDENCE_PARENT/workflow-context.txt"
+
+      - name: Check out immutable assessment baseline
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ env.UPSTREAM_REPOSITORY }}
+          ref: ${{ env.ASSESSMENT_BASELINE_SHA }}
+          path: baseline
+          fetch-depth: 1
+          fetch-tags: false
+          persist-credentials: false
+
+      - name: Check out exact candidate revision as untrusted data
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: ${{ env.CANDIDATE_REPOSITORY }}
           ref: ${{ env.CANDIDATE_SHA }}
           path: candidate
           fetch-depth: 1
+          fetch-tags: false
           persist-credentials: false
+          # Required by checkout v7 for fork heads under pull_request_target.
+          # No later host step executes candidate files; trusted baseline code
+          # inspects committed blobs and the analyzer runs only in the restricted
+          # no-network container.
+          allow-unsafe-pr-checkout: true
 
-      - name: Check out immutable baseline
+      - name: Check out exact pull request base
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: ${{ env.UPSTREAM_REPOSITORY }}
-          ref: ${{ env.BASELINE_COMMIT }}
-          path: baseline
+          ref: ${{ env.UPSTREAM_BASE_SHA }}
+          path: candidate-base
           fetch-depth: 1
+          fetch-tags: false
           persist-credentials: false
 
-      - name: Verify candidate revision and fetch upstream base
-        working-directory: candidate
+      - name: Verify revisions and import pull request base
         run: |
-          actual_commit=$(git rev-parse HEAD)
-          if [[ "$actual_commit" != "$CANDIDATE_SHA" ]]; then
-            echo "Candidate checkout mismatch: expected $CANDIDATE_SHA, got $actual_commit" >&2
-            exit 1
-          fi
-          if ! git cat-file -e "$UPSTREAM_BASE_SHA^{commit}" 2>/dev/null; then
-            git fetch --no-tags --depth=1 "https://github.com/${UPSTREAM_REPOSITORY}.git" "$UPSTREAM_BASE_SHA"
-          fi
-          git cat-file -e "$UPSTREAM_BASE_SHA^{commit}"
+          verify_revision() {
+            local checkout=$1
+            local expected=$2
+            local label=$3
+            local actual
 
-      - name: Verify immutable baseline revision
-        working-directory: baseline
-        run: |
-          actual_commit=$(git rev-parse HEAD)
-          if [[ "$actual_commit" != "$BASELINE_COMMIT" ]]; then
-            echo "Baseline checkout mismatch: expected $BASELINE_COMMIT, got $actual_commit" >&2
-            exit 1
-          fi
-          echo "Using immutable baseline $actual_commit"
+            actual=$(git -C "$checkout" -c core.fsmonitor=false -c core.hooksPath=/dev/null rev-parse --verify 'HEAD^{commit}')
+            if [[ "$actual" != "$expected" ]]; then
+              echo "$label checkout mismatch: expected $expected, got $actual" >&2
+              exit 2
+            fi
+          }
 
-      - name: Set up Go
+          verify_revision "$GITHUB_WORKSPACE/baseline" "$ASSESSMENT_BASELINE_SHA" "Baseline"
+          verify_revision "$GITHUB_WORKSPACE/candidate" "$CANDIDATE_SHA" "Candidate"
+          verify_revision "$GITHUB_WORKSPACE/candidate-base" "$UPSTREAM_BASE_SHA" "Pull request base"
+
+          git -C "$GITHUB_WORKSPACE/candidate" \
+            -c core.fsmonitor=false \
+            -c core.hooksPath=/dev/null \
+            -c protocol.file.allow=always \
+            fetch --no-tags --depth=1 "$GITHUB_WORKSPACE/candidate-base" \
+            "+${UPSTREAM_BASE_SHA}:refs/assessment/pull-request-base"
+          git -C "$GITHUB_WORKSPACE/candidate" \
+            -c core.fsmonitor=false \
+            -c core.hooksPath=/dev/null \
+            cat-file -e "$UPSTREAM_BASE_SHA^{commit}"
+
+      - name: Set up pinned Go toolchain
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: baseline/go.mod
-          cache-dependency-path: baseline/go.mod
+          cache: false
 
-      - name: Validate protected files
-        id: protected
-        continue-on-error: true
-        working-directory: candidate
-        run: bash "$GITHUB_WORKSPACE/baseline/scripts/check-protected.sh" "$UPSTREAM_BASE_SHA" "$CANDIDATE_SHA"
+      - name: Verify host Go toolchain
+        working-directory: baseline
+        run: |
+          expected_toolchain=$(awk '$1 == "toolchain" { print $2 }' go.mod)
+          actual_toolchain=$(go env GOVERSION)
+          printf 'expected=%s\nactual=%s\n' "$expected_toolchain" "$actual_toolchain" \
+            >"$EVIDENCE_PARENT/host-go-version.txt"
+          if [[ -z "$expected_toolchain" || "$actual_toolchain" != "$expected_toolchain" ]]; then
+            echo "Host Go mismatch: expected $expected_toolchain, got $actual_toolchain" >&2
+            exit 2
+          fi
 
-      - name: Run functional tests
-        id: tests
-        if: steps.protected.outcome == 'success'
-        continue-on-error: true
-        working-directory: candidate
-        run: go test ./... -timeout 5m
-
-      - name: Run alternating benchmark samples and compare
-        id: benchmarks
-        if: steps.protected.outcome == 'success' && steps.tests.outcome == 'success'
+      - name: Pull pinned image and run real-runtime canary
+        id: canary
         continue-on-error: true
         working-directory: baseline
         run: |
-          bash "$GITHUB_WORKSPACE/baseline/scripts/run-benchmarks.sh" "$GITHUB_WORKSPACE/baseline" "$GITHUB_WORKSPACE/candidate" "$GITHUB_WORKSPACE/benchmark-results"
-          go run ./cmd/benchcompare \
-            -baseline "$GITHUB_WORKSPACE/benchmark-results/baseline.txt" \
-            -candidate "$GITHUB_WORKSPACE/benchmark-results/candidate.txt" \
-            -output "$GITHUB_WORKSPACE/benchmark-results/report.md" \
-            -min-samples 5
+          pull_log="$EVIDENCE_PARENT/docker-pull-before-canary.log"
+          canary_log="$EVIDENCE_PARENT/isolation-canary.log"
 
-      - name: Capture CPU and allocation profiles
-        id: profiles
-        if: always() && steps.protected.outcome == 'success' && steps.tests.outcome == 'success'
+          set +e
+          docker pull "$ASSESSMENT_DOCKER_IMAGE" >"$pull_log" 2>&1
+          pull_status=$?
+          set -e
+          cat "$pull_log"
+          if [[ $pull_status -ne 0 ]]; then
+            echo "Pinned image pull failed before the real-runtime canary." >&2
+            exit 2
+          fi
+
+          set +e
+          env REQUIRE_DOCKER_RUNTIME=1 \
+            ASSESSMENT_DOCKER_IMAGE="$ASSESSMENT_DOCKER_IMAGE" \
+            bash --noprofile --norc scripts/isolation-test.sh >"$canary_log" 2>&1
+          canary_status=$?
+          set -e
+          cat "$canary_log"
+          exit "$canary_status"
+
+      - name: Refresh pinned image before assessment
+        id: refresh_image
+        if: steps.canary.outcome == 'success'
+        continue-on-error: true
+        run: |
+          refresh_log="$EVIDENCE_PARENT/docker-pull-before-assessment.log"
+          set +e
+          docker pull "$ASSESSMENT_DOCKER_IMAGE" >"$refresh_log" 2>&1
+          refresh_status=$?
+          set -e
+          cat "$refresh_log"
+          exit "$refresh_status"
+
+      - name: Run unified version 3 assessment
+        id: assessor
+        if: steps.canary.outcome == 'success' && steps.refresh_image.outcome == 'success'
         continue-on-error: true
         working-directory: baseline
-        env:
-          PROFILE_PROJECT_DIRECTORY: ${{ github.workspace }}/candidate
-          PROFILE_TIME: 1s
-        run: bash "$GITHUB_WORKSPACE/baseline/scripts/profile.sh" all Balanced "$GITHUB_WORKSPACE/benchmark-results/profiles"
+        run: |
+          assessor_log="$EVIDENCE_PARENT/assessor.log"
+          assessor_output="$EVIDENCE_PARENT/assessment"
 
-      - name: Upload benchmark and profile artifacts
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: streamlens-benchmark-${{ github.event.pull_request.number }}
-          path: benchmark-results/
-          if-no-files-found: ignore
-          retention-days: 14
+          set +e
+          env -u BASH_ENV -u ENV \
+            ASSESSMENT_DOCKER_IMAGE="$ASSESSMENT_DOCKER_IMAGE" \
+            BENCH_SAMPLES="$BENCH_SAMPLES" \
+            BENCH_TIME="$BENCH_TIME" \
+            BENCH_GOMAXPROCS="$BENCH_GOMAXPROCS" \
+            PROFILE_SCENARIO="$PROFILE_SCENARIO" \
+            PROFILE_TIME="$PROFILE_TIME" \
+            bash --noprofile --norc scripts/assess.sh \
+              "$GITHUB_WORKSPACE/baseline" \
+              "$GITHUB_WORKSPACE/candidate" \
+              "$ASSESSMENT_BASELINE_SHA" \
+              "$UPSTREAM_BASE_SHA" \
+              "$CANDIDATE_SHA" \
+              "$assessor_output" >"$assessor_log" 2>&1
+          assessor_status=$?
+          set -e
+
+          printf '%s\n' "$assessor_status" >"$EVIDENCE_PARENT/assessor-exit-code.txt"
+          printf 'exit_code=%s\n' "$assessor_status" >>"$GITHUB_OUTPUT"
+          cat "$assessor_log"
+          exit "$assessor_status"
 
       - name: Write assessment summary
         if: always()
         env:
-          PROTECTED_STATUS: ${{ steps.protected.outcome }}
-          TEST_STATUS: ${{ steps.tests.outcome }}
-          BENCHMARK_STATUS: ${{ steps.benchmarks.outcome }}
-          PROFILE_STATUS: ${{ steps.profiles.outcome }}
+          CANARY_OUTCOME: ${{ steps.canary.outcome }}
+          IMAGE_REFRESH_OUTCOME: ${{ steps.refresh_image.outcome }}
+          ASSESSOR_OUTCOME: ${{ steps.assessor.outcome }}
+          ASSESSOR_EXIT_CODE: ${{ steps.assessor.outputs.exit_code }}
         run: |
+          report="$EVIDENCE_PARENT/assessment/benchmarks/report.md"
+          functional="$EVIDENCE_PARENT/assessment/functional.txt"
+          assessor_log="$EVIDENCE_PARENT/assessor.log"
+          cpu_top="$EVIDENCE_PARENT/assessment/profiles/cpu-top.txt"
+          alloc_top="$EVIDENCE_PARENT/assessment/profiles/alloc-top.txt"
+          protected_status="not run"
+          functional_status="not run"
+
+          if [[ -f "$assessor_log" ]] && grep -Fq 'Protected-file check passed.' "$assessor_log"; then
+            protected_status="passed"
+          elif [[ -f "$assessor_log" ]] && grep -Fq 'protected-scope validation failed' "$assessor_log"; then
+            protected_status="failed"
+          fi
+          if [[ -f "$functional" ]]; then
+            if [[ -f "$assessor_log" ]] && grep -Fq 'functional tests failed' "$assessor_log"; then
+              functional_status="failed"
+            else
+              functional_status="passed"
+            fi
+          fi
+
           {
-            echo "# StreamLens assessment"
+            echo "# StreamLens assessment v3"
             echo
             echo "| Check | Status |"
             echo "| --- | --- |"
-            echo "| Protected files | $PROTECTED_STATUS |"
-            echo "| Functional tests | $TEST_STATUS |"
-            echo "| Performance gate | $BENCHMARK_STATUS |"
-            echo "| Profile capture | $PROFILE_STATUS |"
-            echo
-            if [[ -f benchmark-results/report.md ]]; then
-              cat benchmark-results/report.md
-            elif [[ "$PROTECTED_STATUS" != "success" ]]; then
-              echo "Performance comparison was skipped because protected files changed."
-            elif [[ "$TEST_STATUS" != "success" ]]; then
-              echo "Performance comparison was skipped because functional tests failed."
+            echo "| Real-runtime isolation canary | $CANARY_OUTCOME |"
+            echo "| Pinned-image refresh | $IMAGE_REFRESH_OUTCOME |"
+            echo "| Protected candidate scope | $protected_status |"
+            echo "| Functional tests | $functional_status |"
+            if [[ -n "$ASSESSOR_EXIT_CODE" ]]; then
+              echo "| Unified assessor | $ASSESSOR_OUTCOME (exit $ASSESSOR_EXIT_CODE) |"
             else
-              echo "Performance comparison did not produce a report. Inspect the raw job log."
+              echo "| Unified assessor | $ASSESSOR_OUTCOME (not executed) |"
             fi
-            if [[ -f benchmark-results/profiles/cpu-top.txt ]]; then
+            echo
+
+            if [[ -f "$report" ]]; then
+              cat "$report"
+            elif [[ "$CANARY_OUTCOME" != "success" ]]; then
+              echo "The assessment was not executed because the exact-image real-runtime canary failed."
+            elif [[ "$IMAGE_REFRESH_OUTCOME" != "success" ]]; then
+              echo "The assessment was not executed because the pinned image could not be refreshed."
+            elif [[ -n "$ASSESSOR_EXIT_CODE" ]]; then
+              echo "The assessor exited before producing a benchmark report. Inspect the retained assessor log."
+            else
+              echo "The assessor was not executed because an earlier workflow setup step failed."
+            fi
+
+            if [[ -f "$cpu_top" ]]; then
               echo
               echo "## CPU profile (top)"
               echo
               echo '```text'
-              sed -n '1,20p' benchmark-results/profiles/cpu-top.txt
+              sed -n '1,25p' "$cpu_top"
               echo '```'
             fi
-            if [[ -f benchmark-results/profiles/alloc-top.txt ]]; then
+            if [[ -f "$alloc_top" ]]; then
               echo
               echo "## Allocation profile (top)"
               echo
               echo '```text'
-              sed -n '1,20p' benchmark-results/profiles/alloc-top.txt
+              sed -n '1,25p' "$alloc_top"
               echo '```'
-            fi
-            if [[ "$PROFILE_STATUS" != "success" ]]; then
-              echo
-              echo "Profile capture did not succeed. Inspect the profile step log."
             fi
           } >>"$GITHUB_STEP_SUMMARY"
 
-      - name: Enforce assessment result
+      - name: Upload complete assessment evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: streamlens-assessment-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          path: ${{ env.EVIDENCE_PARENT }}/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce exact assessor result
         if: always()
         env:
-          PROTECTED_STATUS: ${{ steps.protected.outcome }}
-          TEST_STATUS: ${{ steps.tests.outcome }}
-          BENCHMARK_STATUS: ${{ steps.benchmarks.outcome }}
-          PROFILE_STATUS: ${{ steps.profiles.outcome }}
+          ASSESSOR_EXIT_CODE: ${{ steps.assessor.outputs.exit_code }}
         run: |
-          if [[ "$PROTECTED_STATUS" != "success" || "$TEST_STATUS" != "success" || "$BENCHMARK_STATUS" != "success" || "$PROFILE_STATUS" != "success" ]]; then
-            echo "Assessment failed; see the job summary for details." >&2
-            exit 1
+          if [[ ! "$ASSESSOR_EXIT_CODE" =~ ^[0-9]+$ ]]; then
+            echo "The unified assessor did not run; treating this as an infrastructure failure." >&2
+            exit 2
           fi
-          echo "Assessment passed."
+          echo "Unified assessor exit code: $ASSESSOR_EXIT_CODE"
+          exit "$ASSESSOR_EXIT_CODE"

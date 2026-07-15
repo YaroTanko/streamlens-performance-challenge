@@ -113,27 +113,27 @@ console result was observed during implementation but has not yet been retained
 as a release artifact; the release run must retain its
 `controls/isolation.log`.
 
-### Measured pre-release rehearsal
+### Measured local release calibration
 
-On 2026-07-15, a complete local rehearsal used seven alternating samples at
-`300ms` with the exact image above. It retained `status.txt=complete` and
-reported:
+On 2026-07-15, a complete local release run used the immutable baseline commit
+`770e8cb4e206b697c63d18d119dcb6d97d07884b`, seven alternating samples at
+`300ms`, and the exact image above. It retained
+`.bench/calibration-baseline-v3/status.txt=complete` and reported:
 
-- maximum absolute A/A change: 2.06% against the provisional 10% guardrail;
-- A/A geometric means: -0.39% `ns/op`, +0.01% `B/op`, and 0.00%
+- maximum absolute A/A change: 3.57% against the provisional 10% guardrail;
+- A/A geometric means: -1.03% `ns/op`, +0.02% `B/op`, and 0.00%
   `allocs/op`;
-- known-optimized geometric means: +26.13% `ns/op`, +31.03% `B/op`, and
+- known-optimized geometric means: +22.70% `ns/op`, +31.06% `B/op`, and
   +17.23% `allocs/op`, for an overall Middle tier;
 - all six adversarial canaries rejected before benchmark scoring; and
-- 674 seconds total wall time against the 3600-second acceptance bound.
+- 641 seconds total wall time against the 3600-second acceptance bound.
 
 The A/A and optimized `manifest-core.json` SHA-256 values were respectively
-`a4c7ade5cec3bb31a3f543b3b28131582773d4afff1dd97da97c5f9e6965838d` and
-`63be62c7b17d9f3f77c8cad7e99c79b88f2ce9d333ff0d150527ac1332b41a4f`.
-This was a pre-release rehearsal on temporary commits, not evidence for the
-still-uncommitted final `baseline-v3` SHA or the GitHub-hosted runner. The same
-release-parameter run must be repeated and durably retained after the immutable
-baseline commit is created.
+`c1d441b68aceea4972a975e8e960d111b7bd64b8f6af61b948198fefb2da8f48` and
+`d60ec72a371948904a0d742a53ebd044804b860f5514aa1d15bfac4315eca2ee`.
+This is retained local evidence for the exact tagged baseline, not evidence for
+the GitHub-hosted runner. Profiles and test binaries remain in ignored local
+evidence storage rather than Git history.
 
 ## Evidence layout
 
@@ -162,13 +162,11 @@ expected-stage enforcement, exact three-scenario A/A report parsing,
 optimized-tier-range parsing, release/smoke separation, wall-time accounting,
 and incomplete-run retention.
 
-Pending before assessment v3 release:
+Pending before remote assessment v3 activation:
 
-- a durably retained repeat of the successful local A/A and known-optimized run
-  against the final `baseline-v3` SHA;
 - the same release calibration on the pinned GitHub Actions runner;
 - repetition of the passed digest-pinned runtime canary on the pinned CI runner;
 - repeated-run noise analysis and any resulting guardrail adjustment.
 
-The measured values above are local pre-release observations only; they are not
-claims about the final baseline or GitHub-hosted runner.
+The measured values above are exact-final-baseline local observations; they are
+not claims about the GitHub-hosted runner.

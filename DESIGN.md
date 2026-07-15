@@ -133,7 +133,7 @@ aid inside the PRD's non-adversarial, human-reviewed trust model.
 
 ## Version 3 construction and isolated execution
 
-The pending authoritative flow is:
+The authoritative flow is:
 
 ```text
 immutable baseline tree + candidate engine.go + candidate OPTIMIZATION.md
@@ -153,6 +153,14 @@ dropped capabilities, no privilege escalation, a non-root user, and explicit CPU
 memory, process, and file bounds. The parent process owns benchmark framing and
 artifact storage rather than mounting a writable results directory into the
 container.
+
+GitHub Actions uses `pull_request_target` so the workflow definition is loaded
+from the trusted base branch instead of the pull request merge commit. The token
+is explicitly read-only and no secrets are referenced. Checkout v7's explicit
+unsafe-PR opt-out is used only to materialize the exact fork commit as data;
+trusted baseline code reads its committed blobs, and no host step runs a command
+from that checkout. Candidate analyzer execution begins only after the two-file
+overlay enters the restricted no-network container.
 
 Wall-clock and combined-output limits fail closed. Cleanup uses only the validated
 container ID produced for that invocation and is itself bounded. These controls
