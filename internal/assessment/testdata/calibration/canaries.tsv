@@ -1,0 +1,7 @@
+# id	phase	engine fixture	mutation	expected diagnostic
+wrong-result	functional	wrong_result_engine.go	none	assess: functional tests failed
+fake-benchmark-output	scope	fake_benchmark_engine.go	none	rejected fmt.Println
+filesystem-mutation	scope	filesystem_engine.go	none	rejected import "os"
+process-execution	scope	process_engine.go	none	rejected import "os/exec"
+output-close	scope	output_close_engine.go	none	rejected import "os"
+protected-path	scope	wrong_result_engine.go	protected	Protected assessment path changed: CALIBRATION_PROTECTED_CANARY.txt

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+remote_name=${1:-origin}
+base_ref=${STREAMLENS_BASE_REF:-$remote_name/main}
+repository=$(git rev-parse --show-toplevel)
+
+candidate_sha=""
+readonly zero_sha='0000000000000000000000000000000000000000'
+while read -r _local_ref local_sha remote_ref _remote_sha; do
+  case "$remote_ref" in
+    refs/heads/*)
+      # Deleting a remote branch does not submit a candidate revision.
+      if [[ $local_sha == "$zero_sha" ]]; then
+        continue
+      fi
+      if [[ -n $candidate_sha && $candidate_sha != "$local_sha" ]]; then
+        echo "StreamLens preflight supports one candidate commit per push." >&2
+        exit 1
+      fi
+      candidate_sha=$local_sha
+      ;;
+    refs/tags/*)
+      ;;
+    *)
+      echo "StreamLens preflight does not support remote ref: $remote_ref" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Tag-only and branch-deletion pushes do not submit a candidate revision.
+if [[ -z $candidate_sha ]]; then
+  exit 0
+fi
+
+head_sha=$(git -C "$repository" rev-parse 'HEAD^{commit}')
+if [[ $candidate_sha != "$head_sha" ]]; then
+  echo "StreamLens preflight only supports pushing the checked-out HEAD." >&2
+  exit 1
+fi
+
+exec bash "$repository/scripts/preflight.sh" "$base_ref"

@@ -1,7 +1,8 @@
 # StreamLens Performance Challenge — Product Requirements Document
 
-**Status:** Approved for assessment version 2
-**Version:** 2.0
+**Status:** Assessment version 2 is active; the version 3 integrity policy is
+specified but remains inactive until the `baseline-v3` release
+**Version:** 2.0 active; 3.0 activation requirements specified
 **Language:** English
 **Implementation language:** Go
 **Source-of-truth rule:** The application, assessment instructions, tests, benchmarks, and CI workflow must conform to this document. If another repository document conflicts with this PRD, this PRD wins.
@@ -58,6 +59,23 @@ An engineer reviewing the pull request, its CI report, the implementation choice
 ### 5.1 Public-repository integrity model
 
 Benchmark fixtures and previous pull-request solutions are discoverable because the repository is public. Protected paths prevent accidental assessment changes; they do not make the exercise secret or adversarial. Interviewers must review the explanation and diff, not use the numeric tier as the sole hiring signal. Assessment versions should be rotated when solutions become common, and any material change to workloads or implementation receives a new pinned baseline.
+
+### 5.2 Version 3 trust boundary and activation
+
+Assessment version 3 adds a reviewable candidate source policy, a synthetic
+baseline overlay, restricted container execution, and evidence manifests. These
+layers reduce accidental or straightforward same-process interference; neither
+the source guard nor the container is a complete security boundary for code that
+runs inside the benchmark process. The public exercise remains non-adversarial,
+and the interviewer must still review the candidate diff and explanation.
+
+The version 3 policy applies only after all of the following are released as one
+internally consistent assessment version: an immutable `baseline-v3` commit and
+tag, a workflow pinned to that full commit SHA, and a successful real-runtime
+canary using the exact digest-pinned container image. Merely merging the helper
+tools or this policy does not activate version 3. Until that release, version 2
+remains the active candidate contract and no document may claim that the version
+3 isolation path is authoritative.
 
 ## 6. Candidate journey
 
@@ -151,6 +169,10 @@ The internal package exposes an in-repository analyzer API that accepts `context
 The `streamlens` CLI supports input from a file or standard input and writes the aggregate result as JSON to standard output. Diagnostics go to standard error. A processing error exits non-zero.
 
 The project must depend only on the Go standard library unless this PRD is amended.
+Starting with assessment version 3, candidate code in
+`internal/analyzer/engine.go` uses the narrower safe-standard-library subset in
+Section 15.1. That restriction applies to the submitted analyzer implementation,
+not to profiling commands or analysis tools run outside `engine.go`.
 
 ## 11. Baseline implementation requirements
 
@@ -163,6 +185,9 @@ The project must depend only on the Go standard library unless this PRD is amend
 - CI pins the baseline by its full 40-character upstream commit SHA. A
   `baseline-v2` tag is a human-readable alias and is not the source of truth.
 - Any change to the implementation, tests, fixtures, benchmark tooling, or pinned Go toolchain creates a new assessment version and baseline commit.
+- Version 3 must not become active until `baseline-v3`, the pinned workflow, the
+  documented source policy, the synthetic overlay, the restricted runner, and
+  its real digest-pinned runtime canary are released together.
 
 ## 12. Functional verification
 
@@ -197,6 +222,13 @@ Each scenario reports:
 - `allocs/op` for allocation count.
 
 CI runs the immutable baseline and the pull-request revision on the same GitHub-hosted runner with Go 1.26.5 and normally seven alternating samples per scenario (never fewer than five). The report uses each scenario's median and shows per-scenario results plus a geometric-mean improvement for every metric.
+
+Starting with assessment version 3, each retained sample is strictly framed and
+contains the ordered Go benchmark headers `goos`, `goarch`, and `pkg`, followed
+by the exact protected benchmark rows and normal `PASS`/`ok` trailer. A single
+`cpu` header is accepted only after `pkg` and must be consistent when present; it
+is optional because the Go tool legitimately omits it on some platforms,
+including the pinned Linux/arm64 image.
 
 If an aggregate result is within two percentage points of the 20%, 50%, or 75% boundaries, the interviewer should rerun the exact same candidate SHA once. When the two runs produce different tiers or pass/fail outcomes, use the lower result and retain both reports. No code or documentation change is allowed for that rerun.
 
@@ -257,6 +289,67 @@ Candidate pull requests may change only:
 
 Tests, benchmark fixtures, benchmark comparison tooling, module metadata, documentation other than `OPTIMIZATION.md`, and GitHub Actions workflows are protected. CI must reject accidental protected-file changes. This guard is a workflow aid, not a security boundary; the interviewer still reviews the diff.
 
+### 15.1 Candidate analyzer source policy for version 3
+
+This subsection is inactive for version 2 and becomes part of the candidate
+contract only at the `baseline-v3` activation described in Section 5.2. Candidate
+pull requests still edit exactly `internal/analyzer/engine.go` and
+`OPTIMIZATION.md`; the source policy does not expand that scope.
+
+The submitted `engine.go` must remain a straightforward, reviewable analyzer
+implementation using a safe subset of the Go standard library. It must not:
+
+- import `C`, `os`, `os/exec`, `unsafe`, `syscall`, `testing`, `flag`, `log`,
+  `log/slog`, `log/syslog`, `runtime/debug`, `runtime/pprof`, or
+  `runtime/trace`;
+- use package-level functions or variables resolved from `runtime` to inspect or
+  mutate process-wide runtime state;
+- write diagnostics through the `print` or `println` built-ins or
+  `fmt.Print`, `fmt.Printf`, or `fmt.Println`;
+- use cgo or unsafe compiler directives such as `//go:linkname`, `//go:cgo_*`,
+  or `#cgo`; or
+- detect the protected benchmark package, benchmark function, or test benchmark
+  flags through source strings or equivalent source-level markers.
+
+The prohibited imports cover filesystem and process access, subprocesses,
+unsafe/system calls, test hooks, flag and logging side effects, and runtime
+debugging, profiling, or tracing from inside the measured analyzer. Other
+standard-library packages remain available when they preserve the PRD contract.
+Profilers, debuggers, shell commands, and other tools used outside `engine.go`
+remain unrestricted and may be used to gather the required profile evidence.
+
+The guard parses and type-checks the exact committed analyzer source so aliases
+and shadowed names are distinguished. It is intended to produce specific,
+reviewable failures for common integrity violations. It is a workflow aid rather
+than a complete language sandbox or proof of benign behavior; human review is
+still required.
+
+### 15.2 Candidate construction and execution for version 3
+
+At version 3 activation, the authoritative assessment must construct a fresh
+synthetic tree from the immutable baseline and overlay exactly the candidate's
+regular-file versions of `internal/analyzer/engine.go` and `OPTIMIZATION.md`.
+All tests, benchmark workloads, scripts, module metadata, generated files, and
+workflow definitions come from the baseline. Candidate-provided tests, scripts,
+module files, workflow files, symlinks, submodules, and other paths must not be
+copied into or executed from the synthetic tree.
+
+Trusted correctness and benchmark commands must run from that tree in an
+immutable digest-pinned container image with a read-only root and workspace, no
+network or IPC access, dropped capabilities, no privilege escalation, a non-root
+user, and bounded CPU, memory, process, and file resources. The trusted parent
+owns benchmark framing and artifacts, enforces a finite wall-clock deadline and
+combined-output limit, and removes only the validated container ID recorded for
+that invocation. Deadline, output-limit, and container-ID cleanup failures must
+fail closed.
+
+Before this path may become authoritative, a real runtime canary must exercise
+the exact pinned image and demonstrate the required host-write and network
+restrictions, fixed test and benchmark commands, and normal validated-CID cleanup.
+Separate bounded canaries must cover deadline, output-limit, and cleanup-failure
+handling. Construction tests or a fake runtime alone do not satisfy the activation
+requirement.
+
 ## 16. CI output
 
 Every pull request produces a GitHub Actions job summary containing:
@@ -276,6 +369,14 @@ contains `profiles/cpu.pprof`, `profiles/alloc.pprof`,
 Profile capture is diagnostic and runs separately from the alternating benchmark
 samples used for scoring. The workflow uses the `pull_request` event with
 read-only permissions and does not use secrets.
+
+When version 3 is activated, each authoritative assessment artifact set also
+contains `manifest-core.json`, with sorted revisions, fixed assessment parameters,
+and SHA-256 plus size for every recorded artifact, and `manifest.json`, which
+adds volatile generation time and runner metadata. Re-creating the core manifest
+over identical inputs must produce identical bytes. The manifest records the
+evidence chain; it does not turn the source guard or same-process benchmark into a
+cryptographic security boundary.
 
 ## 17. Repository documentation
 
@@ -315,3 +416,15 @@ The repository is ready when:
     `Profile evidence:` bullet without treating it as proof of tool use;
 13. a reviewer can understand the optimization and its profile rationale from the
     pull request and a 5–10 bullet `OPTIMIZATION.md`.
+14. version 3 is not advertised as active before an immutable `baseline-v3`
+    release and workflow repin;
+15. version 3 source-policy failures identify a reviewable offending construct
+    while legitimate analyzer optimizations within the safe subset pass;
+16. version 3 evaluates only the two candidate deliverables overlaid onto the
+    immutable baseline and never executes candidate tests, scripts, module
+    metadata, or workflows;
+17. the exact digest-pinned version 3 container image passes a real runtime canary
+    for host-write, network, fixed-command, and normal CID-cleanup behavior, while
+    bounded canaries cover deadline, output-limit, and cleanup failures; and
+18. version 3 evidence manifests reproduce byte-for-byte for unchanged core
+    inputs and keep volatile runner metadata outside the deterministic core.

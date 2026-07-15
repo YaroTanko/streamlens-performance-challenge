@@ -28,6 +28,37 @@ go test ./...
 GOMAXPROCS=1 go test -run '^$' -bench . -benchmem -cpu=1 ./internal/assessment
 ```
 
+## Maintainer assessment entry point (v3 preparation)
+
+Maintainers can run the hardened local flow against two clean, exact Git
+checkouts. All inputs are required; the output path must not exist, and the
+output parent must be owned by the caller without group/world write permission.
+The container image must be pinned by digest.
+
+```sh
+BASELINE_CHECKOUT=/path/to/clean/base \
+CANDIDATE_CHECKOUT=/path/to/clean/candidate \
+BASELINE_SHA=<full-40-character-pinned-baseline-sha> \
+CANDIDATE_BASE_SHA=<full-40-character-pr-base-sha> \
+CANDIDATE_SHA=<full-40-character-candidate-sha> \
+ASSESS_OUTPUT=/path/to/new-results \
+ASSESSMENT_DOCKER_IMAGE='golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651' \
+make assess
+```
+
+The pinned benchmark baseline and the candidate's PR base are separate inputs,
+so a later workflow-repin commit does not become part of candidate scope. The
+command validates committed scope first, constructs symmetric synthetic
+trees, runs candidate correctness and alternating benchmark samples through the
+restricted container runner, compares them with trusted baseline tooling, then
+captures a separate isolated CPU/allocation profile and writes `functional.txt`,
+`benchmarks/`, `profiles/`, `profile.txt`, and a transactional `evidence/`
+manifest generation.
+Comparator exits remain `0` for pass, `1` for a valid result below the gate, and
+`2` for comparison or infrastructure errors. Profiles remain diagnostic and are
+never mixed into scored samples. A real local run requires an available Docker
+daemon and the pinned image to be present because the runner uses `--pull=never`.
+
 Run the CLI against an NDJSON file:
 
 ```sh
