@@ -10,10 +10,9 @@ for a candidate to investigate.
 `PRD.md` defines all observable behavior. This document describes the current
 component boundaries and the invariants an implementation must preserve.
 
-Assessment version 2 remains active. The version 3 boundaries in this document
-are a pending release design and become authoritative only when an immutable
-`baseline-v3` commit, its workflow pin, and the exact-image real runtime canary
-are released together.
+Assessment version 3 is the current design. Its authoritative boundaries are
+anchored by the immutable `baseline-v3` commit, the workflow pin to that exact
+SHA, and the passed exact-image real runtime canary.
 
 ## Components
 

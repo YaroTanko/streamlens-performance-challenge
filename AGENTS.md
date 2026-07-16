@@ -11,10 +11,9 @@ not measured.
 2. `TASK.md` defines the candidate-editable scope and scoring policy.
 3. `DESIGN.md` summarizes architecture and invariants.
 
-Assessment version 2 remains active until the repository releases the immutable
-`baseline-v3` package and repins the workflow. The version 3 rules below are
-pending activation and must not be represented as active merely because their
-guard or runner code exists.
+Assessment version 3 is active and anchored by the immutable `baseline-v3`
+package and workflow pin. Older recorded submissions retain their original
+assessment-version contract.
 
 For a candidate pull request, edit exactly:
 
@@ -27,7 +26,7 @@ change requires a protected path, explain the conflict instead of making the edi
 
 ## Version 3 candidate source policy
 
-Once `baseline-v3` is activated, keep candidate `engine.go` within the documented
+For `baseline-v3`, keep candidate `engine.go` within the documented
 safe-standard-library subset. Do not import `C`, `os`, `os/exec`, `unsafe`,
 `syscall`, `testing`, `flag`, `log`, `log/slog`, `log/syslog`, `runtime/debug`,
 `runtime/pprof`, or `runtime/trace`. Do not use package-level `runtime` functions

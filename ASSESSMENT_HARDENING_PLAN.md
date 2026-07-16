@@ -17,9 +17,10 @@ Patterns adapted from OpenClaw are fail-closed lifecycle checks, explicit protoc
 - Observed exact-image gate: `golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651` passed functional, `1x` benchmark, profile extraction, network/host-write/proxy restrictions, and validated-CID cleanup on Linux/arm64 Docker Desktop.
 - Released locally: immutable baseline commit `770e8cb4e206b697c63d18d119dcb6d97d07884b` and annotated `baseline-v3` tag.
 - Measured and retained against that exact SHA: seven-sample A/A stayed within 3.57%, the known-optimized canary reached Middle (`+22.70% ns/op`, `+31.06% B/op`, `+17.23% allocs/op`), all six adversarial canaries failed before scoring, and the complete harness finished in 641 seconds.
-- Pending before remote activation: commit and push the trusted-base `pull_request_target` workflow repin, then repeat the runtime canary and release calibration on the pinned GitHub Actions runner and analyze repeated-run noise.
+- Release PR #3 contains the trusted-base `pull_request_target` workflow repin and the active-version documentation; merge is pending.
+- Post-merge verification remains: repeat the runtime canary and release calibration on the pinned GitHub Actions runner and analyze repeated-run noise.
 
-**Current trust boundary:** The local implementation catches correctness regressions, malformed logs, protected-tree changes, host-hook configuration, and common process/filesystem/output tampering. It does not cryptographically authenticate code running in the benchmark process: same-process behavior remains review-based under the PRD's non-adversarial public-repository model. The restricted lifecycle has passed an exact-image local canary but is not authoritative until the complete baseline is tagged, the workflow is repinned, and retained release calibration passes on the pinned runner.
+**Current trust boundary:** The implementation catches correctness regressions, malformed logs, protected-tree changes, host-hook configuration, and common process/filesystem/output tampering. It does not cryptographically authenticate code running in the benchmark process: same-process behavior remains review-based under the PRD's non-adversarial public-repository model. The complete baseline is tagged, the workflow is pinned, and the restricted lifecycle passed exact-image local calibration; GitHub-hosted repetition remains required evidence about that runner, not a new contract version.
 
 ### Step 1: Lock benchmark scenarios to complete expected results
 

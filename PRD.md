@@ -1,8 +1,7 @@
 # StreamLens Performance Challenge — Product Requirements Document
 
-**Status:** Assessment version 2 is active; the version 3 integrity policy is
-specified but remains inactive until the `baseline-v3` release
-**Version:** 2.0 active; 3.0 activation requirements specified
+**Status:** Approved for assessment version 3
+**Version:** 3.0
 **Language:** English
 **Implementation language:** Go
 **Source-of-truth rule:** The application, assessment instructions, tests, benchmarks, and CI workflow must conform to this document. If another repository document conflicts with this PRD, this PRD wins.
@@ -69,13 +68,12 @@ the source guard nor the container is a complete security boundary for code that
 runs inside the benchmark process. The public exercise remains non-adversarial,
 and the interviewer must still review the candidate diff and explanation.
 
-The version 3 policy applies only after all of the following are released as one
-internally consistent assessment version: an immutable `baseline-v3` commit and
-tag, a workflow pinned to that full commit SHA, and a successful real-runtime
-canary using the exact digest-pinned container image. Merely merging the helper
-tools or this policy does not activate version 3. Until that release, version 2
-remains the active candidate contract and no document may claim that the version
-3 isolation path is authoritative.
+The version 3 release is anchored by the immutable `baseline-v3` commit and tag,
+the workflow pin to that full commit SHA, and a successful real-runtime canary
+using the exact digest-pinned container image. Those artifacts are one versioned
+unit: changing its workload, contract, toolchain, source policy, runner, or image
+requires a new immutable assessment version rather than moving the existing tag
+or pin.
 
 ## 6. Candidate journey
 

@@ -11,10 +11,10 @@ It stops at 30:00 or when you record your final local commit SHA. Clone/toolchai
 setup, pushing that SHA, PR creation, CI runtime, and reading its report are not
 timed. Do not change the submitted code or notes after recording the SHA.
 
-Assessment version 2 remains active until the repository releases and pins the
-immutable `baseline-v3` package. The version 3 source and isolation rules below
-apply only after that activation; their presence in this document does not
-retroactively change a version 2 submission.
+Assessment version 3 is active. Its source, construction, isolation, and evidence
+rules are anchored by the immutable `baseline-v3` package and workflow pin.
+Submissions recorded under an older assessment version keep that older contract;
+do not reinterpret them under version 3.
 
 ## Allowed changes
 

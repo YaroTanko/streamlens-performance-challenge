@@ -162,7 +162,7 @@ expected-stage enforcement, exact three-scenario A/A report parsing,
 optimized-tier-range parsing, release/smoke separation, wall-time accounting,
 and incomplete-run retention.
 
-Pending before remote assessment v3 activation:
+Required post-merge GitHub-hosted verification:
 
 - the same release calibration on the pinned GitHub Actions runner;
 - repetition of the passed digest-pinned runtime canary on the pinned CI runner;
