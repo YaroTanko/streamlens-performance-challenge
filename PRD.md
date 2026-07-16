@@ -289,10 +289,10 @@ Tests, benchmark fixtures, benchmark comparison tooling, module metadata, docume
 
 ### 15.1 Candidate analyzer source policy for version 3
 
-This subsection is inactive for version 2 and becomes part of the candidate
-contract only at the `baseline-v3` activation described in Section 5.2. Candidate
-pull requests still edit exactly `internal/analyzer/engine.go` and
-`OPTIMIZATION.md`; the source policy does not expand that scope.
+This subsection is part of the active version 3 candidate contract anchored by
+the `baseline-v3` activation described in Section 5.2. Candidate pull requests
+still edit exactly `internal/analyzer/engine.go` and `OPTIMIZATION.md`; the source
+policy does not expand that scope.
 
 The submitted `engine.go` must remain a straightforward, reviewable analyzer
 implementation using a safe subset of the Go standard library. It must not:
@@ -375,7 +375,7 @@ two-file overlay, and execute the analyzer only inside the restricted no-network
 container. The candidate checkout must never become a host working directory for
 build, test, install, shell, or other code-execution commands.
 
-When version 3 is activated, each authoritative assessment artifact set also
+For active version 3 assessments, each authoritative assessment artifact set also
 contains `manifest-core.json`, with sorted revisions, fixed assessment parameters,
 and SHA-256 plus size for every recorded artifact, and `manifest.json`, which
 adds volatile generation time and runner metadata. Re-creating the core manifest

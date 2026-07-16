@@ -4,11 +4,9 @@ This public repository is designed for candidate optimization pull requests. Rea
 `TASK.md` before starting; candidate submissions have a deliberately narrow edit
 scope.
 
-Assessment version 2 remains active. The version 3 policy described below becomes
-authoritative only when maintainers release an immutable `baseline-v3` commit and
-tag, pin the workflow to that full SHA, and pass a real runtime canary with the
-exact digest-pinned container image. Landing documentation or helper tooling by
-itself does not activate version 3.
+Assessment version 3 is active. Its immutable benchmark baseline is tagged
+`baseline-v3`, the workflow pins the corresponding full commit SHA and exact
+container image digest, and the release passed the required real runtime canary.
 
 ## Fork and branch workflow
 
@@ -44,7 +42,7 @@ itself does not activate version 3.
 ## Version 3 candidate integrity policy
 
 Version 3 keeps the same candidate scope: modify only
-`internal/analyzer/engine.go` and `OPTIMIZATION.md`. In that version,
+`internal/analyzer/engine.go` and `OPTIMIZATION.md`. For version 3,
 `engine.go` must use a safe, reviewable subset of the Go standard library and may
 not import `C`, `os`, `os/exec`, `unsafe`, `syscall`, `testing`, `flag`, `log`,
 `log/slog`, `log/syslog`, `runtime/debug`, `runtime/pprof`, or `runtime/trace`.
@@ -67,10 +65,10 @@ output, followed by validated container-ID cleanup. The artifact set records
 stable revisions, parameters, hashes, and sizes in `manifest-core.json`; volatile
 time and runner metadata are isolated in `manifest.json`.
 
-Maintainers must verify these restrictions with a real canary against the exact
+Maintainers verified these restrictions with a real canary against the exact
 pinned image before activating `baseline-v3`. Fake-runtime and
-command-construction tests are useful prechecks but do not satisfy that release
-gate.
+command-construction tests remain useful prechecks but do not satisfy that release
+gate by themselves.
 
 ## Optional push preflight
 

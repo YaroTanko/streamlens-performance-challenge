@@ -28,7 +28,7 @@ go test ./...
 GOMAXPROCS=1 go test -run '^$' -bench . -benchmem -cpu=1 ./internal/assessment
 ```
 
-## Maintainer assessment entry point (v3 preparation)
+## Maintainer assessment entry point (v3)
 
 Maintainers can run the hardened local flow against two clean, exact Git
 checkouts. All inputs are required; the output path must not exist, and the
