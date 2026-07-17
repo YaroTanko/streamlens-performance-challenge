@@ -59,6 +59,36 @@ Comparator exits remain `0` for pass, `1` for a valid result below the gate, and
 never mixed into scored samples. A real local run requires an available Docker
 daemon and the pinned image to be present because the runner uses `--pull=never`.
 
+### Automatic private evaluator dispatch
+
+Each ready candidate pull request that passes the trusted scope/source preflight
+automatically dispatches the private evaluator with the exact head repository,
+unique PR merge-base SHA, head SHA, PR number, and public-run URL derived from
+the trusted `pull_request_target` event. No interviewer input is required per
+run. Draft PRs wait until they are marked ready. Once a newer head is
+successfully dispatched, it cancels the obsolete private run for the same PR.
+
+One Actions secret is required on this public repository:
+
+- `PRIVATE_EVALUATOR_DISPATCH_TOKEN`: a fine-grained token limited to
+  `YaroTanko/streamlens-performance-evaluator` with **Actions: Read and write**.
+  It does not need Contents write permission.
+
+Configure it once under **Settings → Secrets and variables → Actions**, or with:
+
+```sh
+gh secret set PRIVATE_EVALUATOR_DISPATCH_TOKEN \
+  --repo YaroTanko/streamlens-performance-challenge
+```
+
+The secret is used only by code checked out at the exact trusted workflow
+revision to call the private workflow dispatch API. It is never exposed to
+candidate files, tests, build commands, or the isolated analyzer process. The
+public assessment records the dispatch and fails as an infrastructure error if
+it cannot be created, while its own assessment and evidence capture still
+complete. The private evidence records a deterministic
+`repository#PR@head-SHA` correlation identifier and the public-run URL.
+
 Run the CLI against an NDJSON file:
 
 ```sh

@@ -4,6 +4,7 @@ on:
   # The workflow definition comes only from the trusted base branch. Candidate
   # files are checked out as data and never executed by a host-side command.
   pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -20,6 +21,7 @@ env:
   CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
   UPSTREAM_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
   UPSTREAM_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  WORKFLOW_SHA: ${{ github.workflow_sha }}
   EVIDENCE_PARENT: ${{ github.workspace }}/assessment-evidence
 
 concurrency:
@@ -29,6 +31,7 @@ concurrency:
 jobs:
   assess:
     name: Correctness and performance
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
@@ -44,8 +47,9 @@ jobs:
           {
             printf 'assessment_baseline=%s\n' "$ASSESSMENT_BASELINE_SHA"
             printf 'candidate_repository=%s\n' "$CANDIDATE_REPOSITORY"
-            printf 'candidate_base=%s\n' "$UPSTREAM_BASE_SHA"
+            printf 'pull_request_base_tip=%s\n' "$UPSTREAM_BASE_SHA"
             printf 'candidate=%s\n' "$CANDIDATE_SHA"
+            printf 'workflow=%s\n' "$WORKFLOW_SHA"
             printf 'container_image=%s\n' "$ASSESSMENT_DOCKER_IMAGE"
             printf 'benchmark_samples=%s\n' "$BENCH_SAMPLES"
             printf 'benchmark_time=%s\n' "$BENCH_TIME"
@@ -70,7 +74,10 @@ jobs:
           repository: ${{ env.CANDIDATE_REPOSITORY }}
           ref: ${{ env.CANDIDATE_SHA }}
           path: candidate
-          fetch-depth: 1
+          # Full commit history is needed to derive the unique PR merge base;
+          # blobs remain filtered until trusted assessment code requests them.
+          fetch-depth: 0
+          filter: blob:none
           fetch-tags: false
           persist-credentials: false
           # Required by checkout v7 for fork heads under pull_request_target.
@@ -85,11 +92,23 @@ jobs:
           repository: ${{ env.UPSTREAM_REPOSITORY }}
           ref: ${{ env.UPSTREAM_BASE_SHA }}
           path: candidate-base
+          fetch-depth: 0
+          filter: blob:none
+          fetch-tags: false
+          persist-credentials: false
+
+      - name: Check out trusted workflow revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ env.UPSTREAM_REPOSITORY }}
+          ref: ${{ env.WORKFLOW_SHA }}
+          path: workflow-source
           fetch-depth: 1
           fetch-tags: false
           persist-credentials: false
 
-      - name: Verify revisions and import pull request base
+      - name: Verify revisions and derive candidate scope base
+        id: revisions
         run: |
           verify_revision() {
             local checkout=$1
@@ -106,18 +125,24 @@ jobs:
 
           verify_revision "$GITHUB_WORKSPACE/baseline" "$ASSESSMENT_BASELINE_SHA" "Baseline"
           verify_revision "$GITHUB_WORKSPACE/candidate" "$CANDIDATE_SHA" "Candidate"
-          verify_revision "$GITHUB_WORKSPACE/candidate-base" "$UPSTREAM_BASE_SHA" "Pull request base"
+          verify_revision "$GITHUB_WORKSPACE/candidate-base" "$UPSTREAM_BASE_SHA" "Pull request base tip"
+          verify_revision "$GITHUB_WORKSPACE/workflow-source" "$WORKFLOW_SHA" "Workflow"
 
-          git -C "$GITHUB_WORKSPACE/candidate" \
-            -c core.fsmonitor=false \
-            -c core.hooksPath=/dev/null \
-            -c protocol.file.allow=always \
-            fetch --no-tags --depth=1 "$GITHUB_WORKSPACE/candidate-base" \
-            "+${UPSTREAM_BASE_SHA}:refs/assessment/pull-request-base"
-          git -C "$GITHUB_WORKSPACE/candidate" \
-            -c core.fsmonitor=false \
-            -c core.hooksPath=/dev/null \
-            cat-file -e "$UPSTREAM_BASE_SHA^{commit}"
+          derive_script="$GITHUB_WORKSPACE/workflow-source/.github/scripts/derive-candidate-base.sh"
+          if [[ ! -f "$derive_script" || -L "$derive_script" ]]; then
+            echo "Trusted candidate-base derivation script is missing." >&2
+            exit 2
+          fi
+          candidate_base_sha=$(env -u BASH_ENV -u ENV \
+            bash --noprofile --norc "$derive_script" \
+              "$GITHUB_WORKSPACE/candidate" \
+              "$GITHUB_WORKSPACE/candidate-base" \
+              "$UPSTREAM_BASE_SHA" \
+              "$CANDIDATE_SHA")
+
+          printf 'candidate_base_sha=%s\n' "$candidate_base_sha" >>"$GITHUB_OUTPUT"
+          printf 'candidate_scope_base=%s\n' "$candidate_base_sha" \
+            >>"$EVIDENCE_PARENT/workflow-context.txt"
 
       - name: Set up pinned Go toolchain
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -136,6 +161,56 @@ jobs:
             echo "Host Go mismatch: expected $expected_toolchain, got $actual_toolchain" >&2
             exit 2
           fi
+
+      - name: Run trusted candidate preflight
+        id: candidate_preflight
+        continue-on-error: true
+        working-directory: candidate
+        env:
+          CANDIDATE_BASE_SHA: ${{ steps.revisions.outputs.candidate_base_sha }}
+        run: |
+          preflight_log="$EVIDENCE_PARENT/candidate-preflight.txt"
+          set +e
+          env -u BASH_ENV -u ENV \
+            bash --noprofile --norc "$GITHUB_WORKSPACE/baseline/scripts/check-protected.sh" \
+              "$CANDIDATE_BASE_SHA" "$CANDIDATE_SHA" >"$preflight_log" 2>&1
+          preflight_status=$?
+          set -e
+          cat "$preflight_log"
+          exit "$preflight_status"
+
+      - name: Dispatch private evaluator for the exact PR revision
+        id: private_evaluator
+        if: steps.candidate_preflight.outcome == 'success'
+        continue-on-error: true
+        env:
+          # Fine-grained token scoped only to Actions: write on the private
+          # evaluator repository. It is never passed to candidate code.
+          GH_TOKEN: ${{ secrets.PRIVATE_EVALUATOR_DISPATCH_TOKEN }}
+          CANDIDATE_BASE_SHA: ${{ steps.revisions.outputs.candidate_base_sha }}
+          CANDIDATE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          SOURCE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          dispatch_log="$EVIDENCE_PARENT/private-evaluator-dispatch.txt"
+          dispatch_script="$GITHUB_WORKSPACE/workflow-source/.github/scripts/dispatch-private-evaluator.sh"
+          if [[ ! -f "$dispatch_script" || -L "$dispatch_script" ]]; then
+            echo "Trusted private-evaluator dispatch script is missing." >"$dispatch_log"
+            cat "$dispatch_log"
+            exit 2
+          fi
+
+          set +e
+          env -u BASH_ENV -u ENV \
+            bash --noprofile --norc "$dispatch_script" \
+              "$CANDIDATE_REPOSITORY" \
+              "$CANDIDATE_BASE_SHA" \
+              "$CANDIDATE_SHA" \
+              "$CANDIDATE_PR_NUMBER" \
+              "$SOURCE_RUN_URL" >"$dispatch_log" 2>&1
+          dispatch_status=$?
+          set -e
+          cat "$dispatch_log"
+          exit "$dispatch_status"
 
       - name: Pull pinned image and run real-runtime canary
         id: canary
@@ -182,6 +257,8 @@ jobs:
         if: steps.canary.outcome == 'success' && steps.refresh_image.outcome == 'success'
         continue-on-error: true
         working-directory: baseline
+        env:
+          CANDIDATE_BASE_SHA: ${{ steps.revisions.outputs.candidate_base_sha }}
         run: |
           assessor_log="$EVIDENCE_PARENT/assessor.log"
           assessor_output="$EVIDENCE_PARENT/assessment"
@@ -198,7 +275,7 @@ jobs:
               "$GITHUB_WORKSPACE/baseline" \
               "$GITHUB_WORKSPACE/candidate" \
               "$ASSESSMENT_BASELINE_SHA" \
-              "$UPSTREAM_BASE_SHA" \
+              "$CANDIDATE_BASE_SHA" \
               "$CANDIDATE_SHA" \
               "$assessor_output" >"$assessor_log" 2>&1
           assessor_status=$?
@@ -216,6 +293,8 @@ jobs:
           IMAGE_REFRESH_OUTCOME: ${{ steps.refresh_image.outcome }}
           ASSESSOR_OUTCOME: ${{ steps.assessor.outcome }}
           ASSESSOR_EXIT_CODE: ${{ steps.assessor.outputs.exit_code }}
+          CANDIDATE_PREFLIGHT_OUTCOME: ${{ steps.candidate_preflight.outcome }}
+          PRIVATE_EVALUATOR_OUTCOME: ${{ steps.private_evaluator.outcome }}
         run: |
           report="$EVIDENCE_PARENT/assessment/benchmarks/report.md"
           functional="$EVIDENCE_PARENT/assessment/functional.txt"
@@ -245,6 +324,8 @@ jobs:
             echo "| --- | --- |"
             echo "| Real-runtime isolation canary | $CANARY_OUTCOME |"
             echo "| Pinned-image refresh | $IMAGE_REFRESH_OUTCOME |"
+            echo "| Candidate dispatch preflight | $CANDIDATE_PREFLIGHT_OUTCOME |"
+            echo "| Private evaluator dispatch | $PRIVATE_EVALUATOR_OUTCOME |"
             echo "| Protected candidate scope | $protected_status |"
             echo "| Functional tests | $functional_status |"
             if [[ -n "$ASSESSOR_EXIT_CODE" ]]; then
@@ -297,7 +378,14 @@ jobs:
         if: always()
         env:
           ASSESSOR_EXIT_CODE: ${{ steps.assessor.outputs.exit_code }}
+          CANDIDATE_PREFLIGHT_OUTCOME: ${{ steps.candidate_preflight.outcome }}
+          PRIVATE_EVALUATOR_OUTCOME: ${{ steps.private_evaluator.outcome }}
         run: |
+          if [[ "$CANDIDATE_PREFLIGHT_OUTCOME" == "success" && \
+                "$PRIVATE_EVALUATOR_OUTCOME" != "success" ]]; then
+            echo "The private evaluator was not dispatched for this exact PR revision." >&2
+            exit 2
+          fi
           if [[ ! "$ASSESSOR_EXIT_CODE" =~ ^[0-9]+$ ]]; then
             echo "The unified assessor did not run; treating this as an infrastructure failure." >&2
             exit 2
