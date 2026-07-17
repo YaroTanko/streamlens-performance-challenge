@@ -12,8 +12,8 @@ vet:
 	go vet ./...
 
 workflow-test:
-	bash scripts/derive-candidate-base-test.sh
-	bash scripts/dispatch-private-evaluator-test.sh
+	bash .github/scripts/test-derive-candidate-base.sh
+	bash .github/scripts/test-dispatch-private-evaluator.sh
 
 check: vet test build workflow-test
 

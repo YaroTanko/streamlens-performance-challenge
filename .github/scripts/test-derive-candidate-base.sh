@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-project_directory=$(cd -- "$script_directory/.." && pwd -P)
+project_directory=$(cd -- "$script_directory/../.." && pwd -P)
 derive_script="$project_directory/.github/scripts/derive-candidate-base.sh"
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/streamlens-base-test.XXXXXX")
 trap 'rm -rf -- "$temporary_directory"' EXIT HUP INT TERM

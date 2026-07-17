@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-project_directory=$(cd -- "$script_directory/.." && pwd -P)
+project_directory=$(cd -- "$script_directory/../.." && pwd -P)
 dispatch_script="$project_directory/.github/scripts/dispatch-private-evaluator.sh"
 workflow="$project_directory/.github/workflows/assessment.yml"
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/streamlens-dispatch-test.XXXXXX")
@@ -20,7 +20,7 @@ mkdir -m 0700 "$fake_bin"
 apply_fake_gh() {
   local replacement=$1
   sed "s|@@ARGUMENT_LOG@@|$replacement|g" \
-    "$project_directory/scripts/testdata/fake-dispatch-gh.sh" >"$fake_bin/gh"
+    "$project_directory/.github/scripts/testdata/fake-dispatch-gh.sh" >"$fake_bin/gh"
   chmod 0755 "$fake_bin/gh"
 }
 
