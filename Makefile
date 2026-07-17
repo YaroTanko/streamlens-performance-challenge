@@ -1,4 +1,4 @@
-.PHONY: build test vet check benchmark benchmark-samples assess profile profile-cpu profile-alloc
+.PHONY: build test vet workflow-test check benchmark benchmark-samples assess profile profile-cpu profile-alloc
 
 PROFILE_SCENARIO ?= Balanced
 
@@ -11,7 +11,11 @@ test:
 vet:
 	go vet ./...
 
-check: vet test build
+workflow-test:
+	bash scripts/derive-candidate-base-test.sh
+	bash scripts/dispatch-private-evaluator-test.sh
+
+check: vet test build workflow-test
 
 benchmark:
 	GOMAXPROCS=1 go test -run '^$$' -bench . -benchmem -benchtime=250ms -cpu=1 ./internal/assessment
