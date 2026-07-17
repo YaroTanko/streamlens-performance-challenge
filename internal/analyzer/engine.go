@@ -48,6 +48,7 @@ type aggregate struct {
 
 // Analyze reads all events from input and returns deterministically ordered
 // aggregate groups. Processing stops at the first invalid event or cancellation.
+// This comment-only change is an end-to-end evaluator-dispatch canary.
 func Analyze(ctx context.Context, input io.Reader, config Config) ([]Group, error) {
 	if ctx == nil {
 		return nil, errors.New("context must not be nil")
