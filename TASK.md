@@ -11,6 +11,11 @@ It stops at 30:00 or when you record your final local commit SHA. Clone/toolchai
 setup, pushing that SHA, PR creation, CI runtime, and reading its report are not
 timed. Do not change the submitted code or notes after recording the SHA.
 
+Assessment version 3 is active. Its source, construction, isolation, and evidence
+rules are anchored by the immutable `baseline-v3` package and workflow pin.
+Submissions recorded under an older assessment version keep that older contract;
+do not reinterpret them under version 3.
+
 ## Allowed changes
 
 Your pull request may modify exactly these files:
@@ -31,6 +36,40 @@ request that changes a protected path. Do not move implementation into a new fil
   and ordering; approximate aggregation is not allowed.
 - Keep the project standard-library-only.
 - Do not hard-code benchmark data or detect benchmark scenarios.
+
+## Version 3 source and isolation policy
+
+At `baseline-v3` activation, `internal/analyzer/engine.go` must use a reviewable
+safe subset of the Go standard library. It may not import `C`, `os`, `os/exec`,
+`unsafe`, `syscall`, `testing`, `flag`, `log`, `log/slog`, `log/syslog`,
+`runtime/debug`, `runtime/pprof`, or `runtime/trace`. It also may not use
+package-level `runtime` functions or variables, direct output through the
+`print`/`println` built-ins or `fmt.Print*`, unsafe cgo/compiler directives, or
+source markers that detect the protected benchmark. These restrictions prevent
+filesystem, process, output, test-hook, and runtime-global side effects from the
+measured analyzer while leaving ordinary parsing and aggregation packages
+available.
+
+This source check is a workflow aid, not a complete security boundary. Keep the
+optimization small enough to understand and review during the 30-minute exercise;
+the interviewer still evaluates the exact diff. Profiling and analysis happen
+outside `engine.go`, so candidates remain free to use Go pprof, system profilers,
+debuggers, shell tools, or AI assistants to collect evidence.
+
+The version 3 assessor builds a fresh synthetic tree from its immutable baseline
+and overlays only the candidate's regular-file versions of
+`internal/analyzer/engine.go` and `OPTIMIZATION.md`. It does not copy or execute
+candidate tests, benchmarks, scripts, module metadata, generated files,
+submodules, or workflows. Trusted checks run in a restricted immutable
+digest-pinned container with a read-only root and workspace, no network, and
+bounded resources, deadline, and output. The trusted parent captures artifacts
+and performs validated container-ID cleanup.
+
+Before version 3 can be activated, maintainers must pass a real runtime canary
+with the exact pinned image; construction-only tests are insufficient. An
+authoritative version 3 artifact set includes deterministic revision, parameter,
+artifact-hash, and artifact-size evidence in `manifest-core.json`, with volatile
+time and runner metadata kept in `manifest.json`.
 
 ## Suggested workflow
 
@@ -53,6 +92,8 @@ request that changes a protected path. Do not move implementation into a new fil
 CI compares the immutable baseline and your revision on the same runner. It reports
 the geometric-mean change across benchmark scenarios independently for execution
 time (`ns/op`), allocated bytes (`B/op`), and allocation count (`allocs/op`).
+For version 3, the revision is the two-file overlay described above; candidate
+repository tooling is not part of the executed assessment tree.
 
 | Improvement in a metric | Reported tier |
 | --- | --- |

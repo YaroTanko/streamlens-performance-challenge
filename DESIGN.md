@@ -10,6 +10,10 @@ for a candidate to investigate.
 `PRD.md` defines all observable behavior. This document describes the current
 component boundaries and the invariants an implementation must preserve.
 
+Assessment version 3 is the current design. Its authoritative boundaries are
+anchored by the immutable `baseline-v3` commit, the workflow pin to that exact
+SHA, and the passed exact-image real runtime canary.
+
 ## Components
 
 - `cmd/streamlens` owns flags, file or standard-input selection, JSON output,
@@ -23,6 +27,19 @@ component boundaries and the invariants an implementation must preserve.
   sample loop and writes CPU and allocation pprof data plus top summaries.
 - `scripts` and `.github/workflows` own protected-path validation and comparative
   reporting against the immutable baseline.
+
+Version 3 adds four maintainer-owned integrity components without expanding the
+candidate-editable area:
+
+- the protected scope/source guard reads exact committed blobs, enforces the
+  two-file allowlist, and parses and type-checks `engine.go` without running it;
+- the candidate preparer copies the immutable baseline into a fresh synthetic
+  tree and overlays only `internal/analyzer/engine.go` and `OPTIMIZATION.md`;
+- the isolated runner invokes fixed trusted test or benchmark commands inside an
+  immutable digest-pinned restricted container; and
+- the evidence-manifest writer records revisions, parameters, and artifact
+  digests in a deterministic core, with timestamps and runner identity in a
+  separate volatile envelope.
 
 The analyzer entry point is:
 
@@ -83,9 +100,82 @@ Aggregate and per-scenario regression guards keep one large loss from being hidd
 by gains elsewhere. This makes more than one optimization strategy viable without
 making any single benchmark the entire exercise.
 
+Starting with assessment version 3, the framed parser requires ordered `goos`,
+`goarch`, and `pkg` headers in every sample. Go's `cpu` header is optional for
+platform portability, but when emitted it may appear only once after `pkg` and
+must remain identical across samples and between baseline and candidate.
+
 Tests and benchmark tooling are intentionally outside the candidate-editable area.
 Candidates change only `internal/analyzer/engine.go` and `OPTIMIZATION.md`; all
 behavioral boundaries above remain fixed.
+
+## Version 3 source-policy boundary
+
+The version 3 analyzer is standard-library-only and additionally uses a safe,
+reviewable subset appropriate for same-process assessment integrity. Candidate
+`engine.go` cannot import `C`, `os`, `os/exec`, `unsafe`, `syscall`, `testing`,
+`flag`, `log`, `log/slog`, `log/syslog`, `runtime/debug`, `runtime/pprof`, or
+`runtime/trace`. A type-aware audit also rejects package-level `runtime` functions
+and variables, direct output through `print`, `println`, and `fmt.Print*`, unsafe
+cgo/compiler directives, and protected-benchmark detection markers.
+
+The restriction is intentionally local to candidate `engine.go`. Trusted
+repository code and candidate profiling tools outside that file may use runtime,
+process, output, tracing, and profiling APIs as needed. This preserves unrestricted
+diagnostic choice while keeping the submitted implementation small and directly
+reviewable within the 30-minute exercise.
+
+The audit catches common filesystem, process, runtime-global, and output
+interference, including aliases resolved by Go type checking. It cannot prove all
+possible program behavior and is not a language sandbox. It remains one workflow
+aid inside the PRD's non-adversarial, human-reviewed trust model.
+
+## Version 3 construction and isolated execution
+
+The authoritative flow is:
+
+```text
+immutable baseline tree + candidate engine.go + candidate OPTIMIZATION.md
+  -> validate regular files and exact committed source policy
+  -> create fresh baseline-owned synthetic tree with only those two overlays
+  -> run fixed trusted test/benchmark command in digest-pinned container
+  -> trusted parent bounds deadline/output and captures framed evidence
+  -> remove the invocation's validated container ID
+  -> hash artifacts into deterministic core + volatile manifest envelope
+```
+
+The preparer never traverses candidate paths beyond the two deliverables. Tests,
+benchmarks, scripts, module metadata, generated files, submodules, and workflows
+therefore come from the immutable baseline and candidate versions of them are not
+executed. The container uses a read-only root and workspace, no network or IPC,
+dropped capabilities, no privilege escalation, a non-root user, and explicit CPU,
+memory, process, and file bounds. The parent process owns benchmark framing and
+artifact storage rather than mounting a writable results directory into the
+container.
+
+GitHub Actions uses `pull_request_target` so the workflow definition is loaded
+from the trusted base branch instead of the pull request merge commit. The token
+is explicitly read-only and no secrets are referenced. Checkout v7's explicit
+unsafe-PR opt-out is used only to materialize the exact fork commit as data;
+trusted baseline code reads its committed blobs, and no host step runs a command
+from that checkout. Candidate analyzer execution begins only after the two-file
+overlay enters the restricted no-network container.
+
+Wall-clock and combined-output limits fail closed. Cleanup uses only the validated
+container ID produced for that invocation and is itself bounded. These controls
+reduce host-side effects but do not authenticate output produced by analyzer code
+inside the trusted benchmark process. A real canary against the exact
+digest-pinned image must demonstrate host-write and network restrictions,
+fixed-command execution, and normal CID cleanup before `baseline-v3` activation.
+Separate bounded canaries cover deadline, output-limit, and cleanup-failure
+handling; fake-runtime and command-construction tests alone are insufficient for
+the image-specific release gate.
+
+`manifest-core.json` contains stable, sorted revision identifiers, assessment
+parameters, and SHA-256 plus size for retained artifacts. `manifest.json` wraps
+that evidence with generation time and available runner metadata. Unchanged core
+inputs must serialize identically, while volatile environment facts do not change
+the core digest.
 
 ## Profiling and scoring separation
 
@@ -101,3 +191,7 @@ the top summaries in its job report. Authoritative scoring still comes only from
 the alternating baseline-versus-candidate benchmark samples. Running a profiler
 changes execution conditions, so profile measurements are never mixed into the
 scored sample set.
+
+The version 3 source restriction does not limit this diagnostic workflow: pprof,
+other profilers, debuggers, and process-level tools remain available outside
+candidate `engine.go`.

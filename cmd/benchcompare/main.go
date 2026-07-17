@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -24,8 +25,17 @@ const (
 )
 
 var metricOrder = []string{metricTime, metricBytes, metricAllocs}
+var requiredBenchmarkHeaderOrder = []string{"goos", "goarch", "pkg"}
+var benchmarkHeaderOrder = []string{"goos", "goarch", "pkg", "cpu"}
 
 type samples map[string]map[string][]float64
+
+type benchmarkData struct {
+	values    samples
+	sampleIDs []int
+	token     string
+	headers   map[string]string
+}
 
 type aggregate map[string]map[string]float64
 
@@ -83,65 +93,315 @@ func compareFiles(baselinePath, candidatePath string, minimumSamples int) (strin
 		return "", false, fmt.Errorf("parse candidate: %w", err)
 	}
 
-	result, err := compare(baseline, candidate, minimumSamples)
+	if err := validateFraming(baseline, candidate, minimumSamples); err != nil {
+		return "", false, err
+	}
+	result, err := compare(baseline.values, candidate.values, minimumSamples)
 	if err != nil {
 		return "", false, err
 	}
 	return result.markdown(), result.passed, nil
 }
 
-func parseFile(path string) (samples, error) {
+func parseFile(path string) (benchmarkData, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return benchmarkData{}, err
 	}
 	defer file.Close()
 
-	return parseBenchmarks(file)
+	return parseFramedBenchmarks(file)
 }
 
 func parseBenchmarks(input io.Reader) (samples, error) {
-	parsed := make(samples)
+	parsed, err := parseFramedBenchmarks(input)
+	if err != nil {
+		return nil, err
+	}
+	return parsed.values, nil
+}
+
+func parseFramedBenchmarks(input io.Reader) (benchmarkData, error) {
+	parsed := benchmarkData{values: make(samples)}
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	inSample := false
+	expectedSample := 1
+	seenInSample := make(map[string]bool)
+	var sampleScenarios map[string]bool
+	var expectedScenarios map[string]bool
+	var sampleHeaders map[string]string
+	seenBenchmark := false
+	seenPass := false
+	seenOK := false
 	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		if len(fields) < 4 || !strings.HasPrefix(fields[0], "Benchmark") {
+		line := scanner.Text()
+		if strings.Contains(line, "@@BENCHCOMPARE") {
+			fields := strings.Fields(line)
+			if len(fields) != 5 || fields[0] != "@@BENCHCOMPARE" || fields[1] != "SAMPLE" || (fields[2] != "BEGIN" && fields[2] != "END") {
+				return benchmarkData{}, errors.New("invalid sample marker")
+			}
+			id, parseErr := strconv.Atoi(fields[3])
+			if parseErr != nil || id < 1 || fields[4] == "" {
+				return benchmarkData{}, errors.New("invalid sample marker")
+			}
+			if parsed.token == "" {
+				parsed.token = fields[4]
+			} else if fields[4] != parsed.token {
+				return benchmarkData{}, errors.New("sample marker token mismatch")
+			}
+			if fields[2] == "BEGIN" {
+				if inSample || id != expectedSample {
+					return benchmarkData{}, fmt.Errorf("out-of-order or duplicate sample %d", id)
+				}
+				inSample = true
+				seenInSample = make(map[string]bool)
+				sampleScenarios = make(map[string]bool)
+				sampleHeaders = make(map[string]string, len(benchmarkHeaderOrder))
+				seenBenchmark = false
+				seenPass = false
+				seenOK = false
+				continue
+			}
+			if !inSample || id != expectedSample || len(seenInSample) == 0 {
+				return benchmarkData{}, fmt.Errorf("missing or out-of-order sample %d", id)
+			}
+			if !seenPass || !seenOK {
+				return benchmarkData{}, fmt.Errorf("sample %d is missing the Go benchmark trailer", id)
+			}
+			if !hasRequiredBenchmarkHeaders(sampleHeaders) {
+				return benchmarkData{}, fmt.Errorf("sample %d is missing Go benchmark headers", id)
+			}
+			if parsed.headers == nil {
+				parsed.headers = cloneStrings(sampleHeaders)
+			} else if !sameStrings(parsed.headers, sampleHeaders) {
+				return benchmarkData{}, errors.New("inconsistent Go benchmark headers between samples")
+			}
+			if expectedScenarios == nil {
+				expectedScenarios = cloneSet(sampleScenarios)
+			} else if !sameSet(expectedScenarios, sampleScenarios) {
+				return benchmarkData{}, errors.New("inconsistent scenario set between samples")
+			}
+			inSample = false
+			parsed.sampleIDs = append(parsed.sampleIDs, id)
+			expectedSample++
 			continue
+		}
+		if !inSample {
+			if strings.TrimSpace(line) != "" {
+				return benchmarkData{}, errors.New("output outside a sample")
+			}
+			continue
+		}
+		if !strings.HasPrefix(line, "| ") {
+			return benchmarkData{}, errors.New("unframed output inside a sample")
+		}
+		line = strings.TrimPrefix(line, "| ")
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if !strings.HasPrefix(fields[0], "Benchmark") {
+			switch {
+			case isBenchmarkHeader(line):
+				if seenBenchmark || seenPass || seenOK {
+					return benchmarkData{}, errors.New("benchmark header appears after benchmark rows")
+				}
+				key, value, ok := parseBenchmarkHeader(line)
+				if !ok || !validNextBenchmarkHeader(sampleHeaders, key) {
+					return benchmarkData{}, fmt.Errorf("unexpected or out-of-order Go benchmark header: %q", line)
+				}
+				sampleHeaders[key] = value
+			case line == "PASS":
+				if !seenBenchmark || seenPass || seenOK {
+					return benchmarkData{}, errors.New("invalid Go benchmark PASS trailer")
+				}
+				seenPass = true
+			case isBenchmarkOK(line, sampleHeaders["pkg"]):
+				if !seenPass || seenOK {
+					return benchmarkData{}, errors.New("invalid Go benchmark ok trailer")
+				}
+				seenOK = true
+			default:
+				return benchmarkData{}, fmt.Errorf("unexpected Go benchmark output: %q", line)
+			}
+			continue
+		}
+		if seenPass || seenOK {
+			return benchmarkData{}, errors.New("benchmark row appears after the Go benchmark trailer")
+		}
+		if !hasRequiredBenchmarkHeaders(sampleHeaders) {
+			return benchmarkData{}, errors.New("benchmark row appears before all Go benchmark headers")
+		}
+		if len(fields) != 8 {
+			return benchmarkData{}, errors.New("malformed benchmark row")
+		}
+		iterations, parseErr := strconv.ParseUint(fields[1], 10, 64)
+		if parseErr != nil || iterations == 0 {
+			return benchmarkData{}, fmt.Errorf("invalid benchmark iteration count: %q", fields[1])
 		}
 
 		name := canonicalName(fields[0])
+		if seenInSample[name] {
+			return benchmarkData{}, fmt.Errorf("duplicate benchmark row in sample: %s", name)
+		}
+		seenInSample[name] = true
+		sampleScenarios[name] = true
+		seenBenchmark = true
 		metrics := make(map[string]float64, len(metricOrder))
-		for i := 2; i+1 < len(fields); i++ {
+		for i := 2; i < len(fields); i += 2 {
 			if !isMetric(fields[i+1]) {
-				continue
+				return benchmarkData{}, fmt.Errorf("benchmark %s reports unexpected metric %s", name, fields[i+1])
 			}
 			value, parseErr := strconv.ParseFloat(fields[i], 64)
 			if parseErr != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
-				return nil, fmt.Errorf("invalid %s value for %s: %q", fields[i+1], name, fields[i])
+				return benchmarkData{}, fmt.Errorf("invalid %s value for %s: %q", fields[i+1], name, fields[i])
+			}
+			if _, duplicate := metrics[fields[i+1]]; duplicate {
+				return benchmarkData{}, fmt.Errorf("benchmark %s reports duplicate %s", name, fields[i+1])
 			}
 			metrics[fields[i+1]] = value
-			i++
 		}
 
 		for _, metric := range metricOrder {
 			value, ok := metrics[metric]
 			if !ok {
-				return nil, fmt.Errorf("benchmark %s does not report %s", name, metric)
+				return benchmarkData{}, fmt.Errorf("benchmark %s does not report %s", name, metric)
 			}
-			if parsed[name] == nil {
-				parsed[name] = make(map[string][]float64, len(metricOrder))
+			if parsed.values[name] == nil {
+				parsed.values[name] = make(map[string][]float64, len(metricOrder))
 			}
-			parsed[name][metric] = append(parsed[name][metric], value)
+			parsed.values[name][metric] = append(parsed.values[name][metric], value)
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return benchmarkData{}, err
 	}
-	if len(parsed) == 0 {
-		return nil, errors.New("no Go benchmark rows found")
+	if inSample {
+		return benchmarkData{}, errors.New("sample is missing an end marker")
+	}
+	if len(parsed.sampleIDs) == 0 || len(parsed.values) == 0 {
+		return benchmarkData{}, errors.New("no framed Go benchmark rows found")
+	}
+	// Each scenario's number of values must equal the number of closed samples.
+	for name, metrics := range parsed.values {
+		for _, metric := range metricOrder {
+			if len(metrics[metric]) != len(parsed.sampleIDs) {
+				return benchmarkData{}, fmt.Errorf("inconsistent scenario set between samples: %s", name)
+			}
+		}
 	}
 	return parsed, nil
+}
+
+func isBenchmarkHeader(line string) bool {
+	key, _, ok := parseBenchmarkHeader(line)
+	return ok && key != ""
+}
+
+func hasRequiredBenchmarkHeaders(headers map[string]string) bool {
+	for _, key := range requiredBenchmarkHeaderOrder {
+		if headers[key] == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func validNextBenchmarkHeader(headers map[string]string, key string) bool {
+	if _, duplicate := headers[key]; duplicate {
+		return false
+	}
+	if key == "cpu" {
+		return hasRequiredBenchmarkHeaders(headers)
+	}
+	if len(headers) >= len(requiredBenchmarkHeaderOrder) {
+		return false
+	}
+	return key == requiredBenchmarkHeaderOrder[len(headers)]
+}
+
+func parseBenchmarkHeader(line string) (string, string, bool) {
+	key, value, found := strings.Cut(line, ": ")
+	if !found || value == "" {
+		return "", "", false
+	}
+	for _, expected := range benchmarkHeaderOrder {
+		if key == expected {
+			return key, value, true
+		}
+	}
+	return "", "", false
+}
+
+func isBenchmarkOK(line, expectedPackage string) bool {
+	fields := strings.Fields(line)
+	if len(fields) != 3 || fields[0] != "ok" || expectedPackage == "" || fields[1] != expectedPackage {
+		return false
+	}
+	_, err := time.ParseDuration(fields[2])
+	return err == nil
+}
+
+func cloneStrings(input map[string]string) map[string]string {
+	output := make(map[string]string, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
+func sameStrings(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if right[key] != value {
+			return false
+		}
+	}
+	return true
+}
+
+func cloneSet(input map[string]bool) map[string]bool {
+	output := make(map[string]bool, len(input))
+	for key := range input {
+		output[key] = true
+	}
+	return output
+}
+
+func sameSet(left, right map[string]bool) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key := range left {
+		if !right[key] {
+			return false
+		}
+	}
+	return true
+}
+
+func validateFraming(baseline, candidate benchmarkData, minimumSamples int) error {
+	if len(baseline.sampleIDs) < minimumSamples || len(candidate.sampleIDs) < minimumSamples {
+		return fmt.Errorf("sample count must be at least %d (baseline %d, candidate %d)", minimumSamples, len(baseline.sampleIDs), len(candidate.sampleIDs))
+	}
+	if len(baseline.sampleIDs) != len(candidate.sampleIDs) {
+		return fmt.Errorf("baseline/candidate sample-count mismatch: %d versus %d", len(baseline.sampleIDs), len(candidate.sampleIDs))
+	}
+	if baseline.token != candidate.token {
+		return errors.New("baseline/candidate sample-marker token mismatch")
+	}
+	if !sameStrings(baseline.headers, candidate.headers) {
+		return errors.New("baseline/candidate Go benchmark header mismatch")
+	}
+	for i := range baseline.sampleIDs {
+		if baseline.sampleIDs[i] != candidate.sampleIDs[i] {
+			return fmt.Errorf("baseline/candidate sample-ID mismatch at position %d", i+1)
+		}
+	}
+	return nil
 }
 
 func canonicalName(name string) string {
