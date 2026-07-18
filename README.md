@@ -10,6 +10,10 @@ preserve the behavior, improve the implementation, and let CI measure the result
 `PRD.md` is the source of truth for product behavior and assessment policy. Read
 `TASK.md` before making a candidate change.
 
+**Start here:** [`USER_GUIDE.md`](USER_GUIDE.md) tells candidates, interviewers,
+and maintainers which repository to use, which commands to run, and what each CI
+result means.
+
 ## Quick start
 
 Use the Go version declared in `go.mod`.
@@ -134,6 +138,7 @@ review, but profiles are diagnostic and do not contribute to the score. See
 ## Documentation
 
 - `PRD.md`: product requirements and assessment source of truth
+- `USER_GUIDE.md`: role-based candidate, interviewer, and maintainer workflow
 - `TASK.md`: candidate scope, scoring, and deliverables
 - `DESIGN.md`: architecture and behavioral invariants
 - `PROFILING.md`: profiler-agnostic workflow and local pprof commands
