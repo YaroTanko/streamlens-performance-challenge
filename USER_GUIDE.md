@@ -1,4 +1,4 @@
-# StreamLens User Guide
+# StreamLens Go — User Guide
 
 Use this page before choosing a command or opening a pull request. It separates
 the public candidate workflow from the private evaluation workflow so that each
@@ -18,25 +18,42 @@ The public challenge repository is
 The interviewer-owned evaluator is private; candidates neither need access to it
 nor need to start it themselves.
 
+This is a standalone Go exercise. Do not combine it with the separate Python
+challenge or submit one solution to both.
+
 ## Candidate route
 
 ### 1. Prepare a clean branch
 
+Before the session, the interviewer must send you a full 40-character
+`STARTER_SHA`, normally the upstream `main` commit at the start of that session.
+The Go release does not use `baseline-v3` as a candidate starter:
+`baseline-v3` is the immutable evaluator baseline. The supplied SHA makes every
+candidate in the session start from the same code even if `main` changes later.
+
 Fork the public repository, then clone your fork and create one submission
-branch:
+branch from that exact commit:
 
 ```sh
 git clone https://github.com/<your-user>/streamlens-performance-challenge.git
 cd streamlens-performance-challenge
-git switch -c optimize-analyzer
+git remote add upstream https://github.com/YaroTanko/streamlens-performance-challenge.git
+git fetch upstream
+STARTER_SHA=<full-sha-sent-by-the-interviewer>
+git switch -c optimize-analyzer "$STARTER_SHA"
+go version
 ```
 
-Use the Go toolchain declared in `go.mod`. The optional pre-push hook catches
-cheap local errors, but does not replace CI:
+Use Go 1.26.5, selected by `go.mod`. The optional pre-push hook catches cheap
+local errors, but does not replace CI:
 
 ```sh
 git config core.hooksPath .githooks
 ```
+
+If `go version` does not report Go 1.26.5, stop before the timer and ask the
+interviewer to provision the required toolchain. Do not change `go.mod` or its
+toolchain directive as a workaround.
 
 The 30-minute timer starts only after the clean checkout and required Go
 toolchain are ready. It stops at 30:00 or when you record your final local commit
@@ -92,7 +109,7 @@ make check
 make benchmark
 make profile-cpu
 git diff --check
-git diff --name-only origin/main...HEAD
+git diff --name-only "$STARTER_SHA"...HEAD
 ```
 
 The final command must print only the two allowed paths. Then commit, record the
@@ -128,6 +145,20 @@ CI is authoritative. It compares the immutable `baseline-v3` with your exact
 committed revision. Local measurements are directional only.
 
 ## Interviewer route
+
+### Prepare the session
+
+Before starting a timer, fetch the public `main`, record its full commit SHA as
+`STARTER_SHA`, and send that same SHA to every candidate:
+
+```sh
+git fetch origin main
+git rev-parse origin/main
+```
+
+Confirm that Go 1.26.5 is available and that the candidate has a clean checkout.
+The timer begins only after those checks; do not let a later `main` commit change
+the candidate's starting point.
 
 ### One-time setup
 
