@@ -1,5 +1,7 @@
 # StreamLens Go — User Guide
 
+**Language:** **English** | [Українська](USER_GUIDE.uk.md)
+
 Use this page before choosing a command or opening a pull request. It separates
 the public candidate workflow from the private evaluation workflow so that each
 person uses only the repository and permissions they need.

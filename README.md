@@ -10,9 +10,9 @@ preserve the behavior, improve the implementation, and let CI measure the result
 `PRD.md` is the source of truth for product behavior and assessment policy. Read
 `TASK.md` before making a candidate change.
 
-**Start here:** [`USER_GUIDE.md`](USER_GUIDE.md) tells candidates, interviewers,
-and maintainers which repository to use, which commands to run, and what each CI
-result means.
+**Start here:** [English](USER_GUIDE.md) | [Українська](USER_GUIDE.uk.md) —
+role-based instructions for candidates, interviewers, and maintainers, including
+the repository/tag to use, commands, and CI results.
 
 ## Quick start
 
@@ -138,7 +138,8 @@ review, but profiles are diagnostic and do not contribute to the score. See
 ## Documentation
 
 - `PRD.md`: product requirements and assessment source of truth
-- `USER_GUIDE.md`: role-based candidate, interviewer, and maintainer workflow
+- `USER_GUIDE.md`: English role-based candidate, interviewer, and maintainer workflow
+- `USER_GUIDE.uk.md`: український переклад user guide
 - `TASK.md`: candidate scope, scoring, and deliverables
 - `DESIGN.md`: architecture and behavioral invariants
 - `PROFILING.md`: profiler-agnostic workflow and local pprof commands
